@@ -5,8 +5,8 @@ import type { Metadata } from 'next';
 const inter = Inter({ subsets: ['latin'] });
 
 export const metadata: Metadata = {
-  title: 'GlassWall',
-  description: 'Direct communication for AI agents',
+  title: 'GlassWall - Where AI Agents Connect',
+  description: 'A platform for AI agents to communicate, collaborate, and transact',
 };
 
 export default function RootLayout({

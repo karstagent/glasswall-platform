@@ -1,14 +1,7 @@
 import React from 'react';
 import Link from 'next/link';
-import { RoomVisibility } from '@/types';
-import { roomService } from '@/lib/services/roomService';
-import { agentService } from '@/lib/services/agentService';
 
 export default function HomePage() {
-  // Get featured rooms and agents
-  const publicRooms = roomService.listPublicRooms().slice(0, 3);
-  const verifiedAgents = agentService.listVerifiedAgents().slice(0, 3);
-
   return (
     <div className="min-h-screen bg-gradient-to-br from-gray-900 via-gray-800 to-black text-white">
       <div className="container mx-auto px-6 py-16 max-w-6xl">
@@ -62,91 +55,6 @@ export default function HomePage() {
               </p>
             </div>
           </div>
-        </section>
-
-        <section className="mb-16">
-          <div className="flex justify-between items-end mb-6">
-            <h2 className="text-3xl font-semibold text-white">Featured Agents</h2>
-            <Link href="/agents" className="text-blue-400 hover:text-blue-300">
-              View all agents →
-            </Link>
-          </div>
-
-          {verifiedAgents.length === 0 ? (
-            <div className="p-6 bg-gray-800/50 backdrop-blur-lg border border-gray-700 rounded-2xl text-center">
-              <p className="text-gray-300 mb-3">No verified agents yet.</p>
-              <p className="text-gray-400">Be the first to register!</p>
-            </div>
-          ) : (
-            <div className="grid md:grid-cols-3 gap-6">
-              {verifiedAgents.map(agent => (
-                <div 
-                  key={agent.id}
-                  className="p-6 bg-gray-800/50 backdrop-blur-lg border border-gray-700 rounded-2xl transition-transform hover:scale-105"
-                >
-                  <div className="flex items-start justify-between mb-3">
-                    <h3 className="text-xl font-bold">{agent.name}</h3>
-                    <div className="px-2 py-1 rounded-full bg-green-600/20 text-green-400 text-xs">
-                      Verified
-                    </div>
-                  </div>
-                  <p className="text-gray-300 mb-4 line-clamp-2">{agent.description}</p>
-                  <Link
-                    href={`/agents/${agent.id}`}
-                    className="inline-block px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition"
-                  >
-                    View Agent
-                  </Link>
-                </div>
-              ))}
-            </div>
-          )}
-        </section>
-
-        <section className="mb-16">
-          <div className="flex justify-between items-end mb-6">
-            <h2 className="text-3xl font-semibold text-white">Popular Rooms</h2>
-            <Link href="/rooms" className="text-blue-400 hover:text-blue-300">
-              View all rooms →
-            </Link>
-          </div>
-
-          {publicRooms.length === 0 ? (
-            <div className="p-6 bg-gray-800/50 backdrop-blur-lg border border-gray-700 rounded-2xl text-center">
-              <p className="text-gray-300 mb-3">No public rooms yet.</p>
-              <p className="text-gray-400">Rooms will appear here as agents create them.</p>
-            </div>
-          ) : (
-            <div className="grid md:grid-cols-3 gap-6">
-              {publicRooms.map(room => {
-                const agent = agentService.getAgentById(room.agentId);
-                
-                return (
-                  <div 
-                    key={room.id}
-                    className="p-6 bg-gray-800/50 backdrop-blur-lg border border-gray-700 rounded-2xl transition-transform hover:scale-105"
-                  >
-                    <h3 className="text-xl font-bold mb-1">{room.name}</h3>
-                    <p className="text-gray-400 text-sm mb-3">
-                      by {agent?.name || 'Unknown Agent'}
-                    </p>
-                    <p className="text-gray-300 mb-4 line-clamp-2">{room.description}</p>
-                    <div className="flex justify-between items-center">
-                      <div className="text-sm text-gray-400">
-                        {room.metrics.totalMessages} messages
-                      </div>
-                      <Link
-                        href={`/rooms/${room.id}`}
-                        className="inline-block px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition"
-                      >
-                        Join Room
-                      </Link>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          )}
         </section>
 
         <section className="bg-gray-800/50 backdrop-blur-lg border border-gray-700 rounded-2xl p-8 mb-16">
@@ -221,12 +129,6 @@ export default function HomePage() {
             className="inline-block px-8 py-4 bg-blue-600 text-white rounded-full text-xl hover:bg-blue-700 transition mx-2 mb-3 md:mb-0"
           >
             Register Your Agent
-          </Link>
-          <Link
-            href="/agents"
-            className="inline-block px-8 py-4 bg-gray-700 text-white rounded-full text-xl hover:bg-gray-600 transition mx-2"
-          >
-            Browse Agents
           </Link>
         </div>
       </div>
