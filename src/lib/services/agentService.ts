@@ -1,8 +1,10 @@
-import { PrismaClient } from '@prisma/client';
 import { v4 as uuidv4 } from 'uuid';
 import crypto from 'crypto';
 
-const prisma = new PrismaClient();
+// In-memory storage for when database is not available
+const inMemoryAgents: Record<string, any> = {};
+const inMemoryApiKeys: Record<string, string> = {}; // apiKey -> agentId
+const inMemoryClaimCodes: Record<string, { agentId: string, expires: Date }> = {};
 
 export type AgentRegistrationRequest = {
   agentId: string;
@@ -23,11 +25,7 @@ export const agentService = {
    */
   async registerAgent(request: AgentRegistrationRequest): Promise<AgentRegistrationResponse> {
     // Check if agent ID is already taken
-    const existingAgent = await prisma.agent.findUnique({
-      where: { id: request.agentId }
-    });
-    
-    if (existingAgent) {
+    if (inMemoryAgents[request.agentId]) {
       throw new Error(`Agent ID ${request.agentId} is already taken`);
     }
     
@@ -37,36 +35,40 @@ export const agentService = {
     // Generate a claim code
     const claimCode = crypto.randomBytes(3).toString('hex').toUpperCase();
     
+    // Create timestamp
+    const now = new Date().toISOString();
+    
     // Create the agent
-    const agent = await prisma.agent.create({
-      data: {
-        id: request.agentId,
-        name: request.name,
-        description: request.description,
-        apiKey,
-        ownerTwitterHandle: request.ownerTwitterHandle,
-        verified: false,
-      }
-    });
+    const agent = {
+      id: request.agentId,
+      name: request.name,
+      description: request.description,
+      apiKey,
+      ownerTwitterHandle: request.ownerTwitterHandle,
+      verified: false,
+      createdAt: now,
+      updatedAt: now
+    };
+    
+    // Store the agent in memory
+    inMemoryAgents[agent.id] = agent;
+    inMemoryApiKeys[apiKey] = agent.id;
     
     // Store the claim code with expiry (24 hours)
     const claimExpiry = new Date();
     claimExpiry.setHours(claimExpiry.getHours() + 24);
     
-    await prisma.verificationCode.create({
-      data: {
-        code: claimCode,
-        expires: claimExpiry,
-        agent: {
-          connect: {
-            id: agent.id
-          }
-        }
-      }
-    });
+    inMemoryClaimCodes[claimCode] = {
+      agentId: agent.id,
+      expires: claimExpiry
+    };
     
     // Generate verification URL
-    const verificationUrl = `https://glasswall.vercel.app/verify?code=${claimCode}`;
+    let baseUrl = process.env.VERCEL_URL 
+      ? `https://${process.env.VERCEL_URL}`
+      : 'https://glasswall-rebuild.vercel.app';
+    
+    const verificationUrl = `${baseUrl}/verify?code=${claimCode}`;
     
     return {
       apiKey,
@@ -80,10 +82,7 @@ export const agentService = {
    */
   async verifyAgent(claimCode: string, twitterHandle: string): Promise<boolean> {
     // Get the claim code entry
-    const claim = await prisma.verificationCode.findUnique({
-      where: { code: claimCode },
-      include: { agent: true }
-    });
+    const claim = inMemoryClaimCodes[claimCode];
     
     if (!claim) {
       throw new Error('Invalid claim code');
@@ -95,7 +94,11 @@ export const agentService = {
     }
     
     // Get the agent
-    const agent = claim.agent;
+    const agent = inMemoryAgents[claim.agentId];
+    
+    if (!agent) {
+      throw new Error('Agent not found');
+    }
     
     // Check if twitter handle matches
     if (agent.ownerTwitterHandle.toLowerCase() !== twitterHandle.toLowerCase()) {
@@ -103,15 +106,11 @@ export const agentService = {
     }
     
     // Update agent verification status
-    await prisma.agent.update({
-      where: { id: agent.id },
-      data: { verified: true }
-    });
+    agent.verified = true;
+    agent.updatedAt = new Date().toISOString();
     
     // Remove the claim code
-    await prisma.verificationCode.delete({
-      where: { id: claim.id }
-    });
+    delete inMemoryClaimCodes[claimCode];
     
     return true;
   },
@@ -120,28 +119,26 @@ export const agentService = {
    * Get agent by ID
    */
   async getAgentById(agentId: string) {
-    return prisma.agent.findUnique({
-      where: { id: agentId }
-    });
+    return inMemoryAgents[agentId] || null;
   },
   
   /**
    * Get agent by API key
    */
   async getAgentByApiKey(apiKey: string) {
-    const agent = await prisma.agent.findUnique({
-      where: { apiKey }
-    });
+    const agentId = inMemoryApiKeys[apiKey];
     
-    return agent;
+    if (!agentId) {
+      return null;
+    }
+    
+    return inMemoryAgents[agentId] || null;
   },
   
   /**
    * List all verified agents
    */
   async listVerifiedAgents() {
-    return prisma.agent.findMany({
-      where: { verified: true }
-    });
+    return Object.values(inMemoryAgents).filter((agent: any) => agent.verified);
   }
 };

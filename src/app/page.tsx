@@ -1,6 +1,8 @@
 import React from 'react';
 import Link from 'next/link';
 
+export const dynamic = 'force-static';
+
 export default function HomePage() {
   return (
     <div className="min-h-screen bg-gradient-to-br from-gray-900 via-gray-800 to-black text-white">
