@@ -1,199 +1,201 @@
-import { v4 as uuidv4 } from 'uuid';
 import { Agent, AgentRegistrationRequest, AgentRegistrationResponse } from '@/types';
+import { v4 as uuidv4 } from 'uuid';
+import crypto from 'crypto';
 
-class AgentService {
-  private agents: Map<string, Agent> = new Map();
-  private apiKeys: Map<string, string> = new Map(); // apiKey -> agentId
-  private claimCodes: Map<string, string> = new Map(); // claimCode -> agentId
+// In-memory storage for demo purposes
+// In production, this would use a database
+const agents: Record<string, Agent> = {};
+const apiKeyMap: Record<string, string> = {}; // apiKey -> agentId
+const claimCodes: Record<string, { agentId: string, expires: Date }> = {};
 
+export const agentService = {
   /**
    * Register a new agent
    */
-  public registerAgent(request: AgentRegistrationRequest): AgentRegistrationResponse {
-    const { agentId, name, description, ownerTwitterHandle } = request;
+  async registerAgent(request: AgentRegistrationRequest): Promise<AgentRegistrationResponse> {
+    const now = new Date().toISOString();
     
-    // Check if agent already exists
-    if (this.agents.has(agentId)) {
-      throw new Error(`Agent with ID ${agentId} already exists`);
+    // Check if agent ID is already taken
+    if (agents[request.agentId]) {
+      throw new Error(`Agent ID ${request.agentId} is already taken`);
     }
     
-    // Generate API key and claim code
-    const apiKey = this.generateApiKey();
-    const claimCode = this.generateClaimCode();
+    // Generate an API key
+    const apiKey = crypto.randomBytes(32).toString('hex');
     
-    // Create agent
+    // Generate a claim code
+    const claimCode = crypto.randomBytes(6).toString('hex').toUpperCase();
+    
+    // Create the agent
     const agent: Agent = {
-      id: agentId,
-      name,
-      description,
+      id: request.agentId,
+      name: request.name,
+      description: request.description,
       apiKey,
-      ownerTwitterHandle,
+      ownerTwitterHandle: request.ownerTwitterHandle,
       verified: false,
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString()
+      createdAt: now,
+      updatedAt: now
     };
     
-    // Store agent
-    this.agents.set(agentId, agent);
-    this.apiKeys.set(apiKey, agentId);
-    this.claimCodes.set(claimCode, agentId);
+    // Store the agent
+    agents[agent.id] = agent;
+    apiKeyMap[apiKey] = agent.id;
     
-    // Return response
+    // Store the claim code with expiry (24 hours)
+    const claimExpiry = new Date();
+    claimExpiry.setHours(claimExpiry.getHours() + 24);
+    claimCodes[claimCode] = {
+      agentId: agent.id,
+      expires: claimExpiry
+    };
+    
+    // Generate verification URL
+    const verificationUrl = `https://glasswall.xyz/verify?code=${claimCode}`;
+    
     return {
       apiKey,
       claimCode,
-      verificationUrl: `https://glasswall.xyz/verify/${claimCode}`
+      verificationUrl
     };
-  }
-
+  },
+  
   /**
-   * Generate a unique API key
+   * Verify an agent using a claim code
    */
-  private generateApiKey(): string {
-    return `gw_${uuidv4().replace(/-/g, '')}`;
-  }
-
-  /**
-   * Generate a claim code for verification
-   */
-  private generateClaimCode(): string {
-    // Generate a 8-character alphanumeric code
-    const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
-    let result = '';
-    for (let i = 0; i < 8; i++) {
-      result += chars.charAt(Math.floor(Math.random() * chars.length));
-    }
-    return result;
-  }
-
-  /**
-   * Verify an agent via claim code
-   */
-  public verifyAgent(claimCode: string, twitterHandle: string): boolean {
-    const agentId = this.claimCodes.get(claimCode);
+  async verifyAgent(claimCode: string, twitterHandle: string): Promise<boolean> {
+    // Get the claim code entry
+    const claim = claimCodes[claimCode];
     
-    if (!agentId) {
-      return false;
+    if (!claim) {
+      throw new Error('Invalid claim code');
     }
     
-    const agent = this.agents.get(agentId);
+    // Check if claim code has expired
+    if (claim.expires < new Date()) {
+      throw new Error('Claim code has expired');
+    }
+    
+    // Get the agent
+    const agent = agents[claim.agentId];
     
     if (!agent) {
-      return false;
+      throw new Error('Agent not found');
     }
     
-    // Check if the Twitter handle matches
+    // Check if twitter handle matches
     if (agent.ownerTwitterHandle.toLowerCase() !== twitterHandle.toLowerCase()) {
-      return false;
+      throw new Error('Twitter handle does not match');
     }
     
-    // Update agent
+    // Update agent verification status
     agent.verified = true;
     agent.updatedAt = new Date().toISOString();
     
-    // Clean up claim code
-    this.claimCodes.delete(claimCode);
+    // Remove the claim code
+    delete claimCodes[claimCode];
     
     return true;
-  }
-
+  },
+  
   /**
-   * Get an agent by ID
+   * Get agent by ID
    */
-  public getAgent(agentId: string): Agent | undefined {
-    return this.agents.get(agentId);
-  }
-
+  getAgentById(agentId: string): Agent | null {
+    return agents[agentId] || null;
+  },
+  
   /**
-   * Get an agent by API key
+   * Get agent by API key
    */
-  public getAgentByApiKey(apiKey: string): Agent | undefined {
-    const agentId = this.apiKeys.get(apiKey);
+  getAgentByApiKey(apiKey: string): Agent | null {
+    const agentId = apiKeyMap[apiKey];
+    
     if (!agentId) {
-      return undefined;
-    }
-    return this.agents.get(agentId);
-  }
-
-  /**
-   * Check if an API key is valid
-   */
-  public isValidApiKey(apiKey: string): boolean {
-    return this.apiKeys.has(apiKey);
-  }
-
-  /**
-   * Update agent details
-   */
-  public updateAgent(
-    agentId: string,
-    updates: Partial<Pick<Agent, 'name' | 'description'>>
-  ): Agent {
-    const agent = this.agents.get(agentId);
-    
-    if (!agent) {
-      throw new Error(`Agent not found: ${agentId}`);
+      return null;
     }
     
-    // Update fields
-    if (updates.name) agent.name = updates.name;
-    if (updates.description) agent.description = updates.description;
-    
-    agent.updatedAt = new Date().toISOString();
-    
-    return agent;
-  }
-
+    return this.getAgentById(agentId);
+  },
+  
   /**
-   * Regenerate API key for an agent
+   * Check if an agent is verified
    */
-  public regenerateApiKey(agentId: string): string {
-    const agent = this.agents.get(agentId);
-    
-    if (!agent) {
-      throw new Error(`Agent not found: ${agentId}`);
-    }
-    
-    // Remove old API key
-    if (agent.apiKey) {
-      this.apiKeys.delete(agent.apiKey);
-    }
-    
-    // Generate new API key
-    const newApiKey = this.generateApiKey();
-    
-    // Update agent
-    agent.apiKey = newApiKey;
-    agent.updatedAt = new Date().toISOString();
-    
-    // Store new API key
-    this.apiKeys.set(newApiKey, agentId);
-    
-    return newApiKey;
-  }
-
-  /**
-   * Delete an agent
-   */
-  public deleteAgent(agentId: string): boolean {
-    const agent = this.agents.get(agentId);
+  isAgentVerified(agentId: string): boolean {
+    const agent = agents[agentId];
     
     if (!agent) {
       return false;
     }
     
-    // Remove API key
-    if (agent.apiKey) {
-      this.apiKeys.delete(agent.apiKey);
+    return agent.verified;
+  },
+  
+  /**
+   * List all verified agents
+   */
+  listVerifiedAgents(): Agent[] {
+    return Object.values(agents).filter(agent => agent.verified);
+  },
+  
+  /**
+   * Update agent details
+   */
+  updateAgent(agentId: string, updates: Partial<Agent>): Agent {
+    const agent = agents[agentId];
+    
+    if (!agent) {
+      throw new Error(`Agent ${agentId} not found`);
     }
     
-    // Remove agent
-    this.agents.delete(agentId);
+    // Don't allow updating these fields
+    const { id, apiKey, verified, createdAt, ...allowedUpdates } = updates;
     
-    return true;
+    // Update the agent
+    const updatedAgent = {
+      ...agent,
+      ...allowedUpdates,
+      updatedAt: new Date().toISOString()
+    };
+    
+    // Store the updated agent
+    agents[agentId] = updatedAgent;
+    
+    return updatedAgent;
+  },
+  
+  /**
+   * Reset API key for an agent
+   */
+  resetApiKey(agentId: string): string {
+    const agent = agents[agentId];
+    
+    if (!agent) {
+      throw new Error(`Agent ${agentId} not found`);
+    }
+    
+    // Remove old API key mapping
+    if (agent.apiKey) {
+      delete apiKeyMap[agent.apiKey];
+    }
+    
+    // Generate a new API key
+    const newApiKey = crypto.randomBytes(32).toString('hex');
+    
+    // Update the agent
+    agent.apiKey = newApiKey;
+    agent.updatedAt = new Date().toISOString();
+    
+    // Store the new API key mapping
+    apiKeyMap[newApiKey] = agentId;
+    
+    return newApiKey;
+  },
+  
+  /**
+   * Validate API key
+   */
+  validateApiKey(apiKey: string): boolean {
+    return !!apiKeyMap[apiKey];
   }
-}
-
-// Export a singleton instance
-export const agentService = new AgentService();
-export default agentService;
+};

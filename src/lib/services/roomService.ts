@@ -1,43 +1,46 @@
-import { v4 as uuidv4 } from 'uuid';
 import { Room, RoomSettings, RoomVisibility } from '@/types';
-import messageQueueService from './messageQueueService';
+import { v4 as uuidv4 } from 'uuid';
 
-class RoomService {
-  private rooms: Map<string, Room> = new Map();
-  private agentRooms: Map<string, string[]> = new Map();
+// In-memory storage for demo purposes
+// In production, this would use a database
+const rooms: Record<string, Room> = {};
+const userRoomAccess: Record<string, string[]> = {}; // userId -> roomIds
 
+// Default room settings
+const DEFAULT_ROOM_SETTINGS: RoomSettings = {
+  batchIntervalMinutes: 30,
+  paidResponseTargetMinutes: 2,
+  maxFreeMessagesPerUser: 20,
+  welcomeMessage: 'Welcome to this room! Please follow the community guidelines.',
+  allowAnonymous: false
+};
+
+export const roomService = {
   /**
-   * Create a new room for an agent
+   * Create a new room
    */
-  public createRoom(
+  createRoom(
     agentId: string,
     name: string,
     description: string,
     visibility: RoomVisibility = RoomVisibility.PUBLIC,
-    settings?: Partial<RoomSettings>
+    settings: Partial<RoomSettings> = {}
   ): Room {
-    // Generate unique room ID
-    const roomId = this.generateRoomId(name);
+    const roomId = uuidv4();
+    const now = new Date().toISOString();
     
-    // Default settings
-    const defaultSettings: RoomSettings = {
-      batchIntervalMinutes: 30,
-      paidResponseTargetMinutes: 5,
-      maxFreeMessagesPerUser: 50,
-      allowAnonymous: false,
-      ...settings
-    };
-    
-    // Create room object
     const room: Room = {
       id: roomId,
       agentId,
       name,
       description,
       visibility,
-      settings: defaultSettings,
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
+      settings: {
+        ...DEFAULT_ROOM_SETTINGS,
+        ...settings
+      },
+      createdAt: now,
+      updatedAt: now,
       metrics: {
         totalMessages: 0,
         activeUsers: 0,
@@ -45,200 +48,193 @@ class RoomService {
       }
     };
     
-    // Store room
-    this.rooms.set(roomId, room);
-    
-    // Add to agent's rooms
-    if (!this.agentRooms.has(agentId)) {
-      this.agentRooms.set(agentId, []);
-    }
-    this.agentRooms.get(agentId)!.push(roomId);
-    
-    // Initialize message queues
-    messageQueueService.initializeQueue(
-      roomId,
-      defaultSettings.batchIntervalMinutes,
-      defaultSettings.paidResponseTargetMinutes
-    );
+    // Store the room
+    rooms[roomId] = room;
     
     return room;
-  }
-
+  },
+  
   /**
-   * Generate a unique room ID based on name
+   * Update an existing room
    */
-  private generateRoomId(name: string): string {
-    const slug = this.generateSlug(name);
-    const uniqueId = uuidv4().substring(0, 8);
-    return `${slug}-${uniqueId}`;
-  }
-
-  /**
-   * Generate a URL-friendly slug from room name
-   */
-  private generateSlug(name: string): string {
-    return name
-      .toLowerCase()
-      .replace(/[^\w\s-]/g, '')
-      .replace(/[\s_-]+/g, '-')
-      .replace(/^-+|-+$/g, '');
-  }
-
-  /**
-   * Get a room by ID
-   */
-  public getRoom(roomId: string): Room | undefined {
-    return this.rooms.get(roomId);
-  }
-
-  /**
-   * Get all rooms for an agent
-   */
-  public getAgentRooms(agentId: string): Room[] {
-    const roomIds = this.agentRooms.get(agentId) || [];
-    return roomIds
-      .map(id => this.rooms.get(id))
-      .filter(room => room !== undefined) as Room[];
-  }
-
-  /**
-   * Get all public rooms for discovery
-   */
-  public getPublicRooms(): Room[] {
-    return Array.from(this.rooms.values())
-      .filter(room => room.visibility === RoomVisibility.PUBLIC);
-  }
-
-  /**
-   * Search rooms by name or description
-   */
-  public searchRooms(query: string, onlyPublic: boolean = true): Room[] {
-    const normalizedQuery = query.toLowerCase();
-    return Array.from(this.rooms.values())
-      .filter(room => {
-        // Filter by visibility if needed
-        if (onlyPublic && room.visibility !== RoomVisibility.PUBLIC) {
-          return false;
-        }
-        
-        // Match name or description
-        return (
-          room.name.toLowerCase().includes(normalizedQuery) ||
-          room.description.toLowerCase().includes(normalizedQuery)
-        );
-      });
-  }
-
-  /**
-   * Update room settings
-   */
-  public updateRoomSettings(
+  updateRoom(
     roomId: string,
-    settings: Partial<RoomSettings>
+    updates: Partial<Room>
   ): Room {
-    const room = this.rooms.get(roomId);
+    const room = this.getRoom(roomId);
     
     if (!room) {
-      throw new Error(`Room not found: ${roomId}`);
+      throw new Error(`Room ${roomId} not found`);
     }
     
-    // Update settings
-    room.settings = {
-      ...room.settings,
-      ...settings
+    // Update the room properties
+    const updatedRoom = {
+      ...room,
+      ...updates,
+      settings: updates.settings
+        ? { ...room.settings, ...updates.settings }
+        : room.settings,
+      updatedAt: new Date().toISOString()
     };
     
-    room.updatedAt = new Date().toISOString();
+    // Store the updated room
+    rooms[roomId] = updatedRoom;
     
-    // If batch interval changed, update queue service
-    if (settings.batchIntervalMinutes !== undefined) {
-      messageQueueService.updateBatchInterval(roomId, settings.batchIntervalMinutes);
-    }
-    
-    return room;
-  }
-
-  /**
-   * Update room details
-   */
-  public updateRoom(
-    roomId: string,
-    updates: Partial<Pick<Room, 'name' | 'description' | 'visibility'>>
-  ): Room {
-    const room = this.rooms.get(roomId);
-    
-    if (!room) {
-      throw new Error(`Room not found: ${roomId}`);
-    }
-    
-    // Update fields
-    if (updates.name) room.name = updates.name;
-    if (updates.description) room.description = updates.description;
-    if (updates.visibility) room.visibility = updates.visibility;
-    
-    room.updatedAt = new Date().toISOString();
-    
-    return room;
-  }
-
+    return updatedRoom;
+  },
+  
   /**
    * Delete a room
    */
-  public deleteRoom(roomId: string): boolean {
-    const room = this.rooms.get(roomId);
+  deleteRoom(roomId: string): boolean {
+    const room = rooms[roomId];
     
     if (!room) {
       return false;
     }
     
-    // Remove from rooms map
-    this.rooms.delete(roomId);
+    // Remove the room
+    delete rooms[roomId];
     
-    // Remove from agent's rooms
-    const agentRooms = this.agentRooms.get(room.agentId) || [];
-    this.agentRooms.set(
-      room.agentId,
-      agentRooms.filter(id => id !== roomId)
-    );
-    
-    // Clean up message queues
-    messageQueueService.cleanupRoom(roomId);
+    // Remove access entries for this room
+    for (const userId in userRoomAccess) {
+      userRoomAccess[userId] = userRoomAccess[userId].filter(id => id !== roomId);
+    }
     
     return true;
-  }
-
+  },
+  
   /**
-   * Check if user has access to a room
+   * Get a room by ID
    */
-  public userHasAccess(userId: string, roomId: string): boolean {
-    const room = this.rooms.get(roomId);
+  getRoom(roomId: string): Room | null {
+    return rooms[roomId] || null;
+  },
+  
+  /**
+   * Check if a room exists
+   */
+  roomExists(roomId: string): boolean {
+    return !!rooms[roomId];
+  },
+  
+  /**
+   * List all public rooms
+   */
+  listPublicRooms(): Room[] {
+    return Object.values(rooms).filter(
+      room => room.visibility === RoomVisibility.PUBLIC
+    );
+  },
+  
+  /**
+   * List rooms owned by an agent
+   */
+  listAgentRooms(agentId: string): Room[] {
+    return Object.values(rooms).filter(
+      room => room.agentId === agentId
+    );
+  },
+  
+  /**
+   * List rooms accessible by a user
+   */
+  listUserRooms(userId: string): Room[] {
+    // Get room IDs the user has access to
+    const roomIds = userRoomAccess[userId] || [];
+    
+    // Get public rooms
+    const publicRooms = this.listPublicRooms();
+    
+    // Get private rooms the user has access to
+    const privateRooms = roomIds
+      .map(id => rooms[id])
+      .filter(room => room && room.visibility === RoomVisibility.PRIVATE);
+    
+    // Combine and deduplicate
+    const allRooms = [...publicRooms, ...privateRooms];
+    const uniqueRooms = allRooms.reduce((acc, room) => {
+      if (!acc.find(r => r.id === room.id)) {
+        acc.push(room);
+      }
+      return acc;
+    }, [] as Room[]);
+    
+    return uniqueRooms;
+  },
+  
+  /**
+   * Grant user access to a room
+   */
+  grantAccess(userId: string, roomId: string): boolean {
+    const room = rooms[roomId];
     
     if (!room) {
       return false;
     }
     
-    // Public rooms are accessible to everyone
+    // If the room is public, no need to grant explicit access
     if (room.visibility === RoomVisibility.PUBLIC) {
       return true;
     }
     
-    // For private rooms, we would check access control list
-    // This is a simplified version - in a real implementation,
-    // we would check a database for access permissions
-    return false;
-  }
-
+    // Initialize user's room access array if needed
+    if (!userRoomAccess[userId]) {
+      userRoomAccess[userId] = [];
+    }
+    
+    // Add room to user's access list if not already there
+    if (!userRoomAccess[userId].includes(roomId)) {
+      userRoomAccess[userId].push(roomId);
+    }
+    
+    return true;
+  },
+  
+  /**
+   * Revoke user access to a room
+   */
+  revokeAccess(userId: string, roomId: string): boolean {
+    if (!userRoomAccess[userId]) {
+      return false;
+    }
+    
+    const initialLength = userRoomAccess[userId].length;
+    userRoomAccess[userId] = userRoomAccess[userId].filter(id => id !== roomId);
+    
+    return userRoomAccess[userId].length < initialLength;
+  },
+  
+  /**
+   * Check if a user has access to a room
+   */
+  userHasAccess(userId: string, roomId: string): boolean {
+    const room = rooms[roomId];
+    
+    if (!room) {
+      return false;
+    }
+    
+    // Public rooms are accessible to all
+    if (room.visibility === RoomVisibility.PUBLIC) {
+      return true;
+    }
+    
+    // For private rooms, check access list
+    return userRoomAccess[userId]?.includes(roomId) || false;
+  },
+  
   /**
    * Update room metrics
    */
-  public updateRoomMetrics(
+  updateRoomMetrics(
     roomId: string,
     metrics: Partial<Room['metrics']>
-  ): void {
-    const room = this.rooms.get(roomId);
+  ): boolean {
+    const room = rooms[roomId];
     
     if (!room) {
-      return;
+      return false;
     }
     
     room.metrics = {
@@ -247,34 +243,7 @@ class RoomService {
     };
     
     room.updatedAt = new Date().toISOString();
-  }
-
-  /**
-   * Get room URL
-   */
-  public getRoomUrl(roomId: string): string {
-    return `https://glasswall.xyz/rooms/${roomId}`;
-  }
-
-  /**
-   * Check if a room exists
-   */
-  public roomExists(roomId: string): boolean {
-    return this.rooms.has(roomId);
-  }
-
-  /**
-   * Set a webhook URL for a room
-   */
-  public setRoomWebhook(roomId: string, webhookUrl: string): void {
-    if (!this.roomExists(roomId)) {
-      throw new Error(`Room not found: ${roomId}`);
-    }
     
-    messageQueueService.setWebhookUrl(roomId, webhookUrl);
+    return true;
   }
-}
-
-// Export a singleton instance
-export const roomService = new RoomService();
-export default roomService;
+};

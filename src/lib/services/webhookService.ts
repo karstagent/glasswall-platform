@@ -1,196 +1,214 @@
-import { v4 as uuidv4 } from 'uuid';
-import * as crypto from 'crypto';
 import { Webhook, WebhookEventType } from '@/types';
+import { v4 as uuidv4 } from 'uuid';
+import crypto from 'crypto';
 
-class WebhookService {
-  private webhooks: Map<string, Webhook> = new Map();
-  private agentWebhooks: Map<string, string[]> = new Map(); // agentId -> webhookIds
+// In-memory storage for demo purposes
+// In production, this would use a database
+const webhooks: Record<string, Webhook> = {};
 
+export const webhookService = {
   /**
-   * Create a new webhook
+   * Create a webhook for an agent
    */
-  public createWebhook(
+  createWebhook(
     agentId: string,
     url: string,
-    events: WebhookEventType[],
-    secret?: string
+    events: WebhookEventType[] = [WebhookEventType.MESSAGE_NEW]
   ): Webhook {
     // Generate webhook ID
-    const id = uuidv4();
+    const webhookId = uuidv4();
     
-    // Generate secret if not provided
-    const webhookSecret = secret || this.generateSecret();
+    // Generate webhook secret
+    const secret = crypto.randomBytes(32).toString('hex');
     
-    // Create webhook
+    // Get current timestamp
+    const now = new Date().toISOString();
+    
+    // Create webhook object
     const webhook: Webhook = {
-      id,
+      id: webhookId,
       agentId,
       url,
-      secret: webhookSecret,
+      secret,
       events,
       active: true,
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString()
+      createdAt: now,
+      updatedAt: now
     };
     
-    // Store webhook
-    this.webhooks.set(id, webhook);
-    
-    // Add to agent's webhooks
-    if (!this.agentWebhooks.has(agentId)) {
-      this.agentWebhooks.set(agentId, []);
-    }
-    this.agentWebhooks.get(agentId)!.push(id);
+    // Store the webhook
+    webhooks[webhookId] = webhook;
     
     return webhook;
-  }
-
+  },
+  
   /**
-   * Generate a random secret
+   * Get webhook by ID
    */
-  private generateSecret(): string {
-    return crypto.randomBytes(32).toString('hex');
-  }
-
+  getWebhook(webhookId: string): Webhook | null {
+    return webhooks[webhookId] || null;
+  },
+  
   /**
-   * Get a webhook by ID
+   * List webhooks for an agent
    */
-  public getWebhook(id: string): Webhook | undefined {
-    return this.webhooks.get(id);
-  }
-
-  /**
-   * Get all webhooks for an agent
-   */
-  public getAgentWebhooks(agentId: string): Webhook[] {
-    const webhookIds = this.agentWebhooks.get(agentId) || [];
-    return webhookIds
-      .map(id => this.webhooks.get(id))
-      .filter(webhook => webhook !== undefined) as Webhook[];
-  }
-
+  listAgentWebhooks(agentId: string): Webhook[] {
+    return Object.values(webhooks).filter(
+      webhook => webhook.agentId === agentId
+    );
+  },
+  
   /**
    * Update webhook
    */
-  public updateWebhook(
-    id: string,
-    updates: Partial<Pick<Webhook, 'url' | 'events' | 'active'>>
+  updateWebhook(
+    webhookId: string,
+    updates: Partial<Webhook>
   ): Webhook {
-    const webhook = this.webhooks.get(id);
+    const webhook = webhooks[webhookId];
     
     if (!webhook) {
-      throw new Error(`Webhook not found: ${id}`);
+      throw new Error(`Webhook ${webhookId} not found`);
     }
     
-    // Update fields
-    if (updates.url) webhook.url = updates.url;
-    if (updates.events) webhook.events = updates.events;
-    if (updates.active !== undefined) webhook.active = updates.active;
+    // Don't allow updating these fields
+    const { id, agentId, secret, createdAt, ...allowedUpdates } = updates;
     
-    webhook.updatedAt = new Date().toISOString();
+    // Update the webhook
+    const updatedWebhook = {
+      ...webhook,
+      ...allowedUpdates,
+      updatedAt: new Date().toISOString()
+    };
     
-    return webhook;
-  }
-
+    // Store the updated webhook
+    webhooks[webhookId] = updatedWebhook;
+    
+    return updatedWebhook;
+  },
+  
   /**
-   * Delete a webhook
+   * Delete webhook
    */
-  public deleteWebhook(id: string): boolean {
-    const webhook = this.webhooks.get(id);
+  deleteWebhook(webhookId: string): boolean {
+    const webhook = webhooks[webhookId];
     
     if (!webhook) {
       return false;
     }
     
-    // Remove from webhooks map
-    this.webhooks.delete(id);
-    
-    // Remove from agent's webhooks
-    const agentWebhooks = this.agentWebhooks.get(webhook.agentId) || [];
-    this.agentWebhooks.set(
-      webhook.agentId,
-      agentWebhooks.filter(webhookId => webhookId !== id)
-    );
-    
+    delete webhooks[webhookId];
     return true;
-  }
-
+  },
+  
+  /**
+   * Reset webhook secret
+   */
+  resetWebhookSecret(webhookId: string): string {
+    const webhook = webhooks[webhookId];
+    
+    if (!webhook) {
+      throw new Error(`Webhook ${webhookId} not found`);
+    }
+    
+    // Generate new secret
+    const newSecret = crypto.randomBytes(32).toString('hex');
+    
+    // Update webhook
+    webhook.secret = newSecret;
+    webhook.updatedAt = new Date().toISOString();
+    
+    return newSecret;
+  },
+  
   /**
    * Trigger webhook event
    */
-  public async triggerWebhook(
+  async triggerWebhook(
     agentId: string,
     eventType: WebhookEventType,
-    payload: any
-  ): Promise<void> {
-    const webhooks = this.getAgentWebhooks(agentId)
-      .filter(webhook => webhook.active && webhook.events.includes(eventType));
-    
-    const timestamp = Date.now().toString();
-    
-    // Trigger webhooks in parallel
-    await Promise.all(
-      webhooks.map(async webhook => {
-        try {
-          // Generate signature
-          const signature = this.generateSignature(webhook.secret, payload, timestamp);
-          
-          // Send webhook request
-          const response = await fetch(webhook.url, {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              'X-GlassWall-Signature': signature,
-              'X-GlassWall-Timestamp': timestamp,
-              'X-GlassWall-Event': eventType
-            },
-            body: JSON.stringify({
-              event: eventType,
-              timestamp,
-              data: payload
-            })
-          });
-
-          if (!response.ok) {
-            console.error(`Webhook delivery failed: ${response.status} ${response.statusText}`);
-          }
-        } catch (error) {
-          console.error('Error triggering webhook:', error);
-        }
-      })
+    payload: Record<string, any>
+  ): Promise<boolean> {
+    // Find all active webhooks for this agent that subscribe to this event
+    const relevantWebhooks = Object.values(webhooks).filter(
+      webhook => (
+        webhook.agentId === agentId &&
+        webhook.active &&
+        webhook.events.includes(eventType)
+      )
     );
-  }
-
+    
+    if (relevantWebhooks.length === 0) {
+      console.log(`No webhooks found for agent ${agentId} and event ${eventType}`);
+      return false;
+    }
+    
+    // Timestamp for the event
+    const timestamp = new Date().toISOString();
+    
+    // In a real implementation, we would make HTTP requests to each webhook URL
+    // For this demo, we'll just log the events
+    for (const webhook of relevantWebhooks) {
+      // Create the full payload
+      const fullPayload = {
+        type: eventType,
+        timestamp,
+        agentId,
+        data: payload
+      };
+      
+      // Generate signature for payload
+      const signature = this.generateSignature(webhook.secret, fullPayload);
+      
+      console.log(`Triggering webhook ${webhook.id} for event ${eventType}`);
+      console.log(`  URL: ${webhook.url}`);
+      console.log(`  Payload: ${JSON.stringify(fullPayload)}`);
+      console.log(`  Signature: ${signature}`);
+      
+      // In a real implementation:
+      // fetch(webhook.url, {
+      //   method: 'POST',
+      //   headers: {
+      //     'Content-Type': 'application/json',
+      //     'X-GlassWall-Signature': signature,
+      //     'X-GlassWall-Event': eventType
+      //   },
+      //   body: JSON.stringify(fullPayload)
+      // }).catch(error => {
+      //   console.error(`Error triggering webhook ${webhook.id}:`, error);
+      // });
+    }
+    
+    return true;
+  },
+  
   /**
-   * Generate webhook signature
+   * Generate signature for webhook payload
    */
-  private generateSignature(secret: string, payload: any, timestamp: string): string {
-    const stringPayload = typeof payload === 'string' ? payload : JSON.stringify(payload);
-    const signatureData = `${timestamp}.${stringPayload}`;
-    
-    const hmac = crypto.createHmac('sha256', secret);
-    hmac.update(signatureData);
-    
-    return hmac.digest('hex');
-  }
-
+  generateSignature(secret: string, payload: Record<string, any>): string {
+    const payloadString = JSON.stringify(payload);
+    return crypto
+      .createHmac('sha256', secret)
+      .update(payloadString)
+      .digest('hex');
+  },
+  
   /**
    * Verify webhook signature
    */
-  public verifySignature(
+  verifySignature(
     secret: string,
-    payload: any,
-    timestamp: string,
+    payload: string | Record<string, any>,
     signature: string
   ): boolean {
-    const expectedSignature = this.generateSignature(secret, payload, timestamp);
+    const payloadString = typeof payload === 'string'
+      ? payload
+      : JSON.stringify(payload);
+      
+    const expectedSignature = this.generateSignature(secret, JSON.parse(payloadString));
     return crypto.timingSafeEqual(
-      Buffer.from(expectedSignature),
-      Buffer.from(signature)
+      Buffer.from(signature),
+      Buffer.from(expectedSignature)
     );
   }
-}
-
-// Export a singleton instance
-export const webhookService = new WebhookService();
-export default webhookService;
+};

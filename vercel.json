@@ -1,19 +1,23 @@
 {
   "version": 2,
-  "builds": [
-    {
-      "src": "index.html",
-      "use": "@vercel/static"
-    }
-  ],
-  "routes": [
-    {
-      "src": "/(.*)",
-      "dest": "/index.html"
+  "buildCommand": "next build",
+  "devCommand": "next dev",
+  "installCommand": "npm install",
+  "framework": "nextjs",
+  "rewrites": [
+    { 
+      "source": "/(.*)", 
+      "destination": "/api/$1",
+      "has": [
+        {
+          "type": "host",
+          "value": "api.glasswall.xyz"
+        }
+      ] 
     }
   ],
   "github": {
     "enabled": true,
-    "silent": true
+    "silent": false
   }
 }

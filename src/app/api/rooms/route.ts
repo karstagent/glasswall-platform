@@ -4,32 +4,35 @@ import { agentService } from '@/lib/services/agentService';
 import { RoomVisibility } from '@/types';
 
 /**
- * GET /api/rooms - Get all public rooms or agent's rooms
+ * GET /api/rooms - List rooms (public or owned by agent)
  */
 export async function GET(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url);
     const agentId = searchParams.get('agentId');
-    const query = searchParams.get('q');
+    const userId = searchParams.get('userId');
     
     let rooms;
     
     if (agentId) {
-      // Get rooms for specific agent
-      rooms = roomService.getAgentRooms(agentId);
-    } else if (query) {
-      // Search rooms
-      rooms = roomService.searchRooms(query);
+      // List rooms owned by agent
+      rooms = roomService.listAgentRooms(agentId);
+    } else if (userId) {
+      // List rooms accessible to user
+      rooms = roomService.listUserRooms(userId);
     } else {
-      // Get all public rooms
-      rooms = roomService.getPublicRooms();
+      // List public rooms
+      rooms = roomService.listPublicRooms();
     }
     
-    return NextResponse.json({ success: true, data: rooms });
+    return NextResponse.json({
+      success: true,
+      data: rooms
+    });
   } catch (error) {
-    console.error('Error getting rooms:', error);
+    console.error('Error listing rooms:', error);
     return NextResponse.json(
-      { success: false, error: 'Failed to get rooms' },
+      { success: false, error: 'Failed to list rooms' },
       { status: 500 }
     );
   }
@@ -41,15 +44,16 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
   try {
     // Get API key from Authorization header
-    const authHeader = request.headers.get('Authorization');
-    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    const apiKey = request.headers.get('x-api-key');
+    
+    if (!apiKey) {
       return NextResponse.json(
-        { success: false, error: 'Unauthorized' },
+        { success: false, error: 'API key required' },
         { status: 401 }
       );
     }
     
-    const apiKey = authHeader.substring(7);
+    // Validate API key
     const agent = agentService.getAgentByApiKey(apiKey);
     
     if (!agent) {
@@ -59,19 +63,30 @@ export async function POST(request: NextRequest) {
       );
     }
     
+    // Check if agent is verified
     if (!agent.verified) {
       return NextResponse.json(
-        { success: false, error: 'Agent not verified' },
+        { success: false, error: 'Agent must be verified to create rooms' },
         { status: 403 }
       );
     }
     
     // Parse request body
-    const { name, description, visibility, settings } = await request.json();
+    const body = await request.json();
+    const { name, description, visibility = 'public', settings = {} } = body;
     
+    // Validate required fields
     if (!name || !description) {
       return NextResponse.json(
         { success: false, error: 'Name and description are required' },
+        { status: 400 }
+      );
+    }
+    
+    // Validate visibility
+    if (!Object.values(RoomVisibility).includes(visibility as RoomVisibility)) {
+      return NextResponse.json(
+        { success: false, error: 'Invalid visibility value' },
         { status: 400 }
       );
     }
@@ -81,7 +96,7 @@ export async function POST(request: NextRequest) {
       agent.id,
       name,
       description,
-      visibility || RoomVisibility.PUBLIC,
+      visibility as RoomVisibility,
       settings
     );
     

@@ -2,44 +2,64 @@ import { NextRequest, NextResponse } from 'next/server';
 import { agentService } from '@/lib/services/agentService';
 
 /**
- * POST /api/auth/verify - Verify an agent's Twitter handle
+ * POST /api/auth/verify - Verify an agent with claim code
  */
 export async function POST(request: NextRequest) {
   try {
     // Parse request body
-    const { claimCode, twitterHandle } = await request.json();
+    const body = await request.json();
+    const { claimCode, twitterHandle } = body;
     
-    // Validate request
+    // Validate required fields
     if (!claimCode || !twitterHandle) {
       return NextResponse.json(
-        { success: false, error: 'Claim code and Twitter handle are required' },
+        { 
+          success: false, 
+          error: 'Missing required fields' 
+        },
         { status: 400 }
       );
     }
     
-    // Normalize Twitter handle (ensure it starts with @)
-    const normalizedTwitterHandle = twitterHandle.startsWith('@')
-      ? twitterHandle
-      : `@${twitterHandle}`;
-    
-    // Verify agent
-    const verified = agentService.verifyAgent(claimCode, normalizedTwitterHandle);
+    // Verify the agent
+    const verified = await agentService.verifyAgent(claimCode, twitterHandle);
     
     if (!verified) {
       return NextResponse.json(
-        { success: false, error: 'Invalid claim code or Twitter handle mismatch' },
+        { 
+          success: false, 
+          error: 'Verification failed' 
+        },
         { status: 400 }
       );
     }
     
-    return NextResponse.json({
-      success: true,
-      message: 'Agent verified successfully'
+    return NextResponse.json({ 
+      success: true, 
+      data: { verified: true } 
     });
   } catch (error) {
     console.error('Error verifying agent:', error);
+    
+    // Handle specific errors
+    const err = error as Error;
+    if (err.message.includes('Invalid claim code') ||
+        err.message.includes('Claim code has expired') ||
+        err.message.includes('Twitter handle does not match')) {
+      return NextResponse.json(
+        { 
+          success: false, 
+          error: err.message 
+        },
+        { status: 400 }
+      );
+    }
+    
     return NextResponse.json(
-      { success: false, error: 'Failed to verify agent' },
+      { 
+        success: false, 
+        error: 'Failed to verify agent' 
+      },
       { status: 500 }
     );
   }

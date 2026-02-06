@@ -1,74 +1,44 @@
-import { v4 as uuidv4 } from 'uuid';
 import { Message, MessageQueue, MessageStatus, MessageTier, QueueStatus } from '@/types';
+import { v4 as uuidv4 } from 'uuid';
 
-class MessageQueueService {
-  private queues: Map<string, MessageQueue> = new Map();
-  private batchIntervals: Map<string, number> = new Map();
-  private paidResponseTargets: Map<string, number> = new Map();
-  private batchSchedules: Map<string, NodeJS.Timeout> = new Map();
-  private webhookUrls: Map<string, string> = new Map();
+// In-memory storage for demo purposes
+// In production, this would use a database
+const messageQueues: Record<string, MessageQueue> = {};
+const messages: Record<string, Message> = {};
 
+export const messageQueueService = {
   /**
-   * Initialize a new queue for a room
+   * Get or create a message queue for a room and tier
    */
-  public initializeQueue(
-    roomId: string,
-    batchIntervalMinutes: number = 30,
-    paidResponseTargetMinutes: number = 5,
-    webhookUrl?: string
-  ): void {
-    // Initialize free queue
-    this.queues.set(`${roomId}:${MessageTier.FREE}`, {
-      roomId,
-      tier: MessageTier.FREE,
-      messages: [],
-      metrics: {
-        totalMessages: 0,
-        processingTime: 0,
-        averageResponseTime: 0,
-        oldestMessage: null
-      }
-    });
-
-    // Initialize paid queue
-    this.queues.set(`${roomId}:${MessageTier.PAID}`, {
-      roomId,
-      tier: MessageTier.PAID,
-      messages: [],
-      metrics: {
-        totalMessages: 0,
-        processingTime: 0,
-        averageResponseTime: 0,
-        oldestMessage: null
-      }
-    });
-
-    // Store configuration
-    this.batchIntervals.set(roomId, batchIntervalMinutes);
-    this.paidResponseTargets.set(roomId, paidResponseTargetMinutes);
-    if (webhookUrl) {
-      this.webhookUrls.set(roomId, webhookUrl);
+  getOrCreateQueue(roomId: string, tier: MessageTier): MessageQueue {
+    const queueId = `${roomId}_${tier}`;
+    
+    if (!messageQueues[queueId]) {
+      messageQueues[queueId] = {
+        roomId,
+        tier,
+        messages: [],
+        metrics: {
+          totalMessages: 0,
+          processingTime: 0,
+          averageResponseTime: 0,
+          oldestMessage: null
+        }
+      };
     }
-
-    // Set up batch processing schedule
-    this.scheduleBatchProcessing(roomId);
-  }
-
+    
+    return messageQueues[queueId];
+  },
+  
   /**
-   * Add a message to the appropriate queue
+   * Add a message to the queue
    */
-  public async addMessage(
+  async addMessage(
     roomId: string,
     userId: string,
     content: string,
     tier: MessageTier
   ): Promise<Message> {
-    const queueKey = `${roomId}:${tier}`;
-    
-    if (!this.queues.has(queueKey)) {
-      throw new Error(`Queue not found for room ${roomId} and tier ${tier}`);
-    }
-
     const message: Message = {
       id: uuidv4(),
       roomId,
@@ -76,290 +46,206 @@ class MessageQueueService {
       content,
       tier,
       status: MessageStatus.QUEUED,
-      createdAt: new Date().toISOString()
+      createdAt: new Date().toISOString(),
     };
-
-    const queue = this.queues.get(queueKey)!;
-    queue.messages.push(message);
     
-    // Update metrics
+    // Store the message
+    messages[message.id] = message;
+    
+    // Add to appropriate queue
+    const queue = this.getOrCreateQueue(roomId, tier);
+    queue.messages.push(message);
     queue.metrics.totalMessages++;
-    if (!queue.metrics.oldestMessage || new Date(message.createdAt) < new Date(queue.metrics.oldestMessage)) {
+    
+    if (!queue.metrics.oldestMessage) {
       queue.metrics.oldestMessage = message.createdAt;
     }
-
-    // For paid tier, process immediately
+    
+    // For paid messages, start processing immediately
     if (tier === MessageTier.PAID) {
-      this.processPaidMessage(message);
+      setTimeout(() => this.processMessage(message.id), 2000); // Simulate immediate processing
+      return message;
     }
-
+    
+    // For free messages, they'll be processed in batch
+    // We'll simulate this with a short delay for the demo
+    if (!queue.nextBatchAt) {
+      const batchDelay = 5 * 60 * 1000; // 5 minutes for the batch
+      queue.nextBatchAt = new Date(Date.now() + batchDelay).toISOString();
+      
+      // Schedule the batch processing
+      setTimeout(() => this.processBatch(roomId, tier), batchDelay);
+    }
+    
     return message;
-  }
-
+  },
+  
   /**
-   * Process a paid message immediately
+   * Process a single message (typically used for paid messages)
    */
-  private async processPaidMessage(message: Message): Promise<void> {
-    // Update message status
+  async processMessage(messageId: string): Promise<void> {
+    const message = messages[messageId];
+    if (!message) return;
+    
+    // Update status to processing
     message.status = MessageStatus.PROCESSING;
     
-    try {
-      // Notify the agent via webhook if configured
-      const webhookUrl = this.webhookUrls.get(message.roomId);
-      if (webhookUrl) {
-        await this.notifyAgent(message.roomId, [message]);
-      }
-      
-      // Simulate processing time (in a real implementation, we'd wait for agent's response)
-      await new Promise(resolve => setTimeout(resolve, 1000));
-      
-      // Update message status to delivered
+    // Simulate processing time
+    setTimeout(() => {
+      // Update status to delivered
       message.status = MessageStatus.DELIVERED;
       message.processedAt = new Date().toISOString();
       
-      // Update metrics
-      const queueKey = `${message.roomId}:${message.tier}`;
-      const queue = this.queues.get(queueKey)!;
+      // Update queue metrics
+      const queue = this.getOrCreateQueue(message.roomId, message.tier);
+      const processingTime = new Date(message.processedAt).getTime() - 
+                             new Date(message.createdAt).getTime();
       
-      const processingTime = new Date(message.processedAt).getTime() - new Date(message.createdAt).getTime();
-      queue.metrics.processingTime += processingTime;
-      queue.metrics.averageResponseTime = queue.metrics.processingTime / queue.metrics.totalMessages;
+      queue.metrics.processingTime = processingTime;
       
-    } catch (error) {
-      message.status = MessageStatus.FAILED;
-      console.error('Failed to process paid message:', error);
-    }
-  }
-
+      // Update average response time
+      const totalMessages = queue.metrics.totalMessages;
+      const currentAverage = queue.metrics.averageResponseTime;
+      queue.metrics.averageResponseTime = 
+        (currentAverage * (totalMessages - 1) + processingTime) / totalMessages;
+      
+      // Update lastProcessedAt
+      queue.lastProcessedAt = message.processedAt;
+      
+      // If using webhooks, we would notify the agent here
+      console.log(`Message ${messageId} processed and delivered`);
+    }, 3000); // Simulate processing time
+  },
+  
   /**
-   * Schedule batch processing for free messages
+   * Process a batch of messages (used for free messages)
    */
-  private scheduleBatchProcessing(roomId: string): void {
-    const batchIntervalMinutes = this.batchIntervals.get(roomId) || 30;
-    const intervalMs = batchIntervalMinutes * 60 * 1000;
+  async processBatch(roomId: string, tier: MessageTier): Promise<void> {
+    const queue = this.getOrCreateQueue(roomId, tier);
     
-    // Clear any existing schedule
-    if (this.batchSchedules.has(roomId)) {
-      clearInterval(this.batchSchedules.get(roomId)!);
-    }
-    
-    // Set up new schedule
-    const batchTimer = setInterval(() => {
-      this.processBatch(roomId);
-    }, intervalMs);
-    
-    this.batchSchedules.set(roomId, batchTimer);
-    
-    // Calculate next batch time
-    const queueKey = `${roomId}:${MessageTier.FREE}`;
-    const queue = this.queues.get(queueKey);
-    
-    if (queue) {
-      queue.nextBatchAt = new Date(Date.now() + intervalMs).toISOString();
-    }
-  }
-
-  /**
-   * Process a batch of free messages
-   */
-  private async processBatch(roomId: string): Promise<void> {
-    const queueKey = `${roomId}:${MessageTier.FREE}`;
-    const queue = this.queues.get(queueKey);
-    
-    if (!queue || queue.messages.length === 0) {
-      return;
-    }
-    
-    const batchId = uuidv4();
-    const batchStartTime = new Date();
-    
-    // Get messages that are queued for processing
-    const messagesToProcess = queue.messages.filter(
-      msg => msg.status === MessageStatus.QUEUED
+    // Find messages with QUEUED status
+    const queuedMessages = queue.messages.filter(
+      (msg) => msg.status === MessageStatus.QUEUED
     );
-
-    if (messagesToProcess.length === 0) {
+    
+    if (queuedMessages.length === 0) {
+      // Reset batch timer
+      queue.nextBatchAt = undefined;
       return;
     }
     
-    // Group messages by similarity
-    // In a real implementation, this would be more sophisticated
-    const groupedMessages = this.groupSimilarMessages(messagesToProcess);
+    // Batch ID for tracking
+    const batchId = uuidv4();
     
-    // Notify the agent about the batch
-    const webhookUrl = this.webhookUrls.get(roomId);
-    if (webhookUrl) {
-      await this.notifyAgent(roomId, messagesToProcess);
-    }
-    
-    // Process each message in the batch
-    for (const message of messagesToProcess) {
-      try {
-        message.status = MessageStatus.PROCESSING;
-        message.batchId = batchId;
-        
-        // In a real implementation, we'd wait for the agent's response
-        // Simulating processing time
-        await new Promise(resolve => setTimeout(resolve, 200));
-        
+    // Process each message
+    for (const message of queuedMessages) {
+      message.status = MessageStatus.PROCESSING;
+      message.batchId = batchId;
+      
+      // We'll simulate the processing time
+      setTimeout(() => {
         message.status = MessageStatus.DELIVERED;
         message.processedAt = new Date().toISOString();
         
-      } catch (error) {
-        message.status = MessageStatus.FAILED;
-        console.error('Failed to process message in batch:', error);
-      }
+        // Update queue metrics
+        queue.lastProcessedAt = message.processedAt;
+      }, 2000); // Simulate processing time
     }
     
-    // Update queue metrics
-    const batchEndTime = new Date();
-    const totalProcessingTime = batchEndTime.getTime() - batchStartTime.getTime();
+    // After batch processing, update metrics
+    setTimeout(() => {
+      // Calculate processing times for this batch
+      const processingTimes = queuedMessages
+        .filter((msg) => msg.processedAt)
+        .map((msg) => new Date(msg.processedAt!).getTime() - new Date(msg.createdAt).getTime());
+      
+      if (processingTimes.length > 0) {
+        const avgProcessingTime = processingTimes.reduce((a, b) => a + b, 0) / processingTimes.length;
+        
+        // Update metrics
+        queue.metrics.processingTime = avgProcessingTime;
+        
+        // Update average response time with moving average
+        const totalMessages = queue.metrics.totalMessages;
+        const currentAverage = queue.metrics.averageResponseTime;
+        queue.metrics.averageResponseTime = 
+          (currentAverage * (totalMessages - processingTimes.length) + 
+           avgProcessingTime * processingTimes.length) / totalMessages;
+      }
+      
+      // Reset the next batch time
+      queue.nextBatchAt = undefined;
+      queue.metrics.oldestMessage = null;
+      
+      // Find new oldest message if any are still queued
+      const remainingQueued = queue.messages.filter(
+        (msg) => msg.status === MessageStatus.QUEUED
+      );
+      
+      if (remainingQueued.length > 0) {
+        // Sort by creation time
+        remainingQueued.sort((a, b) => 
+          new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
+        );
+        
+        queue.metrics.oldestMessage = remainingQueued[0].createdAt;
+        
+        // Schedule the next batch
+        const batchDelay = 5 * 60 * 1000; // 5 minutes for next batch
+        queue.nextBatchAt = new Date(Date.now() + batchDelay).toISOString();
+        
+        // Schedule the batch processing
+        setTimeout(() => this.processBatch(roomId, tier), batchDelay);
+      }
+      
+      console.log(`Batch ${batchId} processed for room ${roomId}`);
+    }, 5000); // Time to process the whole batch
+  },
+  
+  /**
+   * Get all messages for a user in a room
+   */
+  getUserMessages(roomId: string, userId: string): Message[] {
+    return Object.values(messages).filter(
+      (msg) => msg.roomId === roomId && msg.userId === userId
+    ).sort((a, b) => 
+      new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+    );
+  },
+  
+  /**
+   * Get queue status for a room and tier
+   */
+  getQueueStatus(roomId: string, tier: MessageTier): QueueStatus {
+    const queue = this.getOrCreateQueue(roomId, tier);
     
-    queue.lastProcessedAt = batchEndTime.toISOString();
-    queue.nextBatchAt = new Date(Date.now() + (this.batchIntervals.get(roomId)! * 60 * 1000)).toISOString();
-    
-    // Update overall metrics
-    const processedMessages = messagesToProcess.filter(
-      msg => msg.status === MessageStatus.DELIVERED
+    // Count queued messages
+    const queuedMessages = queue.messages.filter(
+      (msg) => msg.status === MessageStatus.QUEUED
     ).length;
     
-    if (processedMessages > 0) {
-      queue.metrics.processingTime += totalProcessingTime;
-      queue.metrics.averageResponseTime = queue.metrics.processingTime / processedMessages;
-    }
+    // Calculate estimated wait time based on queue metrics
+    let estimatedWait = 0;
     
-    // Remove processed messages from the queue
-    queue.messages = queue.messages.filter(
-      msg => msg.status === MessageStatus.QUEUED
-    );
-    
-    // Recalculate oldest message
-    if (queue.messages.length > 0) {
-      const oldestMessage = queue.messages.reduce(
-        (oldest, msg) => !oldest || new Date(msg.createdAt) < new Date(oldest) ? msg.createdAt : oldest, 
-        null as string | null
-      );
-      queue.metrics.oldestMessage = oldestMessage;
-    } else {
-      queue.metrics.oldestMessage = null;
-    }
-  }
-
-  /**
-   * Group similar messages for batch processing
-   * This is a simple implementation - in real-world, this would use more sophisticated NLP
-   */
-  private groupSimilarMessages(messages: Message[]): Message[][] {
-    // In a real implementation, this would use semantic similarity
-    // For now, just return the original array as a single group
-    return [messages];
-  }
-
-  /**
-   * Notify agent about new messages via webhook
-   */
-  private async notifyAgent(roomId: string, messages: Message[]): Promise<void> {
-    const webhookUrl = this.webhookUrls.get(roomId);
-    if (!webhookUrl) return;
-
-    try {
-      // In a real implementation, this would use a proper HTTP client with security
-      const response = await fetch(webhookUrl, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          event: messages.length > 1 ? 'batch.ready' : 'message.new',
-          data: {
-            roomId,
-            messages
-          }
-        })
-      });
-
-      if (!response.ok) {
-        console.error('Failed to notify agent:', await response.text());
-      }
-    } catch (error) {
-      console.error('Error notifying agent:', error);
-    }
-  }
-
-  /**
-   * Get queue status for a room
-   */
-  public getQueueStatus(roomId: string, tier: MessageTier): QueueStatus {
-    const queueKey = `${roomId}:${tier}`;
-    const queue = this.queues.get(queueKey);
-    
-    if (!queue) {
-      throw new Error(`Queue not found for room ${roomId} and tier ${tier}`);
-    }
-    
-    // For paid tier
     if (tier === MessageTier.PAID) {
-      return {
-        messageCount: queue.messages.length,
-        estimatedWait: this.paidResponseTargets.get(roomId) || 5
-      };
+      // For paid, estimate based on average processing time
+      estimatedWait = queue.metrics.processingTime > 0 
+        ? queue.metrics.processingTime
+        : 5000; // Default to 5 seconds if no data
+    } else {
+      // For free, estimate based on time until next batch
+      if (queue.nextBatchAt) {
+        estimatedWait = new Date(queue.nextBatchAt).getTime() - Date.now();
+        if (estimatedWait < 0) estimatedWait = 0;
+      } else {
+        estimatedWait = 5 * 60 * 1000; // Default 5 minutes
+      }
     }
     
-    // For free tier
     return {
-      messageCount: queue.messages.length,
-      estimatedWait: this.batchIntervals.get(roomId) || 30,
+      messageCount: queuedMessages,
+      estimatedWait: Math.round(estimatedWait / 1000), // Convert to seconds
       nextBatchAt: queue.nextBatchAt
     };
   }
-
-  /**
-   * Get all messages for a specific user in a room
-   */
-  public getUserMessages(roomId: string, userId: string): Message[] {
-    const freeQueueKey = `${roomId}:${MessageTier.FREE}`;
-    const paidQueueKey = `${roomId}:${MessageTier.PAID}`;
-    
-    const freeMessages = this.queues.get(freeQueueKey)?.messages || [];
-    const paidMessages = this.queues.get(paidQueueKey)?.messages || [];
-    
-    return [...freeMessages, ...paidMessages]
-      .filter(msg => msg.userId === userId)
-      .sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
-  }
-
-  /**
-   * Update batch interval for a room
-   */
-  public updateBatchInterval(roomId: string, newIntervalMinutes: number): void {
-    this.batchIntervals.set(roomId, newIntervalMinutes);
-    this.scheduleBatchProcessing(roomId);
-  }
-
-  /**
-   * Set webhook URL for a room
-   */
-  public setWebhookUrl(roomId: string, url: string): void {
-    this.webhookUrls.set(roomId, url);
-  }
-
-  /**
-   * Clean up queues when room is deleted
-   */
-  public cleanupRoom(roomId: string): void {
-    this.queues.delete(`${roomId}:${MessageTier.FREE}`);
-    this.queues.delete(`${roomId}:${MessageTier.PAID}`);
-    this.batchIntervals.delete(roomId);
-    this.paidResponseTargets.delete(roomId);
-    this.webhookUrls.delete(roomId);
-    
-    if (this.batchSchedules.has(roomId)) {
-      clearInterval(this.batchSchedules.get(roomId)!);
-      this.batchSchedules.delete(roomId);
-    }
-  }
-}
-
-// Export a singleton instance
-export const messageQueueService = new MessageQueueService();
-export default messageQueueService;
+};

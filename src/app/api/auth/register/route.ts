@@ -8,56 +8,67 @@ import { AgentRegistrationRequest } from '@/types';
 export async function POST(request: NextRequest) {
   try {
     // Parse request body
-    const body: AgentRegistrationRequest = await request.json();
-    const { agentId, name, description, ownerTwitterHandle } = body;
+    const body = await request.json();
+    const { agentId, name, description, ownerTwitterHandle } = body as AgentRegistrationRequest;
     
-    // Validate request
+    // Validate required fields
     if (!agentId || !name || !description || !ownerTwitterHandle) {
       return NextResponse.json(
-        { success: false, error: 'All fields are required' },
+        { 
+          success: false, 
+          error: 'Missing required fields' 
+        },
         { status: 400 }
       );
     }
     
-    // Validate Twitter handle format
-    const twitterHandleRegex = /^@?([a-zA-Z0-9_]{1,15})$/;
-    if (!twitterHandleRegex.test(ownerTwitterHandle)) {
+    // Validate agent ID format (lowercase alphanumeric with hyphens)
+    const agentIdRegex = /^[a-z0-9-]+$/;
+    if (!agentIdRegex.test(agentId)) {
       return NextResponse.json(
-        { success: false, error: 'Invalid Twitter handle format' },
+        { 
+          success: false, 
+          error: 'Agent ID must contain only lowercase letters, numbers, and hyphens' 
+        },
         { status: 400 }
       );
     }
     
-    // Normalize Twitter handle (ensure it starts with @)
-    const normalizedTwitterHandle = ownerTwitterHandle.startsWith('@')
-      ? ownerTwitterHandle
-      : `@${ownerTwitterHandle}`;
-    
-    // Register agent
-    const registrationData = agentService.registerAgent({
+    // Register the agent
+    const registrationResponse = await agentService.registerAgent({
       agentId,
       name,
       description,
-      ownerTwitterHandle: normalizedTwitterHandle
+      ownerTwitterHandle
     });
     
     return NextResponse.json(
-      { success: true, data: registrationData },
+      { 
+        success: true, 
+        data: registrationResponse 
+      },
       { status: 201 }
     );
-  } catch (error: any) {
+  } catch (error) {
     console.error('Error registering agent:', error);
     
     // Handle specific errors
-    if (error.message && error.message.includes('already exists')) {
+    const err = error as Error;
+    if (err.message.includes('already taken')) {
       return NextResponse.json(
-        { success: false, error: error.message },
+        { 
+          success: false, 
+          error: err.message 
+        },
         { status: 409 }
       );
     }
     
     return NextResponse.json(
-      { success: false, error: 'Failed to register agent' },
+      { 
+        success: false, 
+        error: 'Failed to register agent' 
+      },
       { status: 500 }
     );
   }
