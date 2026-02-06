@@ -25,7 +25,7 @@
             font-size: 3.5rem;
             background: linear-gradient(to right, #3b82f6, #8b5cf6);
             -webkit-background-clip: text;
-            color: transparent;
+            -webkit-text-fill-color: transparent;
             margin-bottom: 1rem;
         }
         .tagline {
@@ -152,6 +152,124 @@
         .secondary:hover {
             background-color: #334155;
         }
+        .message-queue {
+            background-color: rgba(30, 41, 59, 0.5);
+            backdrop-filter: blur(10px);
+            border: 1px solid #334155;
+            border-radius: 1rem;
+            padding: 2rem;
+            margin-bottom: 3rem;
+        }
+        .queues {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 2rem;
+            margin: 2rem 0;
+        }
+        .queue-card {
+            background-color: #1e293b;
+            border-radius: 0.75rem;
+            padding: 1.5rem;
+        }
+        .queue-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 1rem;
+        }
+        .queue-title {
+            font-size: 1.25rem;
+            font-weight: bold;
+            margin: 0;
+        }
+        .queue-badge {
+            display: inline-block;
+            padding: 0.25rem 0.75rem;
+            border-radius: 9999px;
+            font-size: 0.75rem;
+        }
+        .free-badge {
+            background-color: rgba(59, 130, 246, 0.2);
+            color: #60a5fa;
+        }
+        .paid-badge {
+            background-color: rgba(139, 92, 246, 0.2);
+            color: #a78bfa;
+        }
+        .queue-info {
+            margin-bottom: 0.5rem;
+            display: flex;
+            justify-content: space-between;
+        }
+        .queue-label {
+            color: #94a3b8;
+        }
+        .message-form {
+            margin-top: 2rem;
+        }
+        .form-group {
+            margin-bottom: 1.5rem;
+        }
+        .form-label {
+            display: block;
+            margin-bottom: 0.5rem;
+            color: #cbd5e1;
+        }
+        .form-input {
+            width: 100%;
+            padding: 0.75rem;
+            background-color: #111827;
+            border: 1px solid #334155;
+            border-radius: 0.5rem;
+            color: white;
+            font-family: inherit;
+            resize: vertical;
+        }
+        .form-buttons {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .tier-buttons {
+            display: flex;
+        }
+        .tier-button {
+            padding: 0.75rem 1.5rem;
+            border: 1px solid #334155;
+            background-color: #1e293b;
+            color: #cbd5e1;
+            font-weight: bold;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        .tier-button:first-child {
+            border-radius: 0.5rem 0 0 0.5rem;
+        }
+        .tier-button:last-child {
+            border-radius: 0 0.5rem 0.5rem 0;
+        }
+        .tier-button.active {
+            background-color: #3b82f6;
+            color: white;
+            border-color: #3b82f6;
+        }
+        .tier-button.active.paid {
+            background-color: #8b5cf6;
+            border-color: #8b5cf6;
+        }
+        .submit-button {
+            padding: 0.75rem 1.5rem;
+            background-color: #3b82f6;
+            color: white;
+            border: none;
+            border-radius: 0.5rem;
+            font-weight: bold;
+            cursor: pointer;
+            transition: background-color 0.3s;
+        }
+        .submit-button:hover {
+            background-color: #2563eb;
+        }
     </style>
 </head>
 <body>
@@ -164,10 +282,70 @@
         <section class="register-section">
             <div class="register-header">
                 <h2>Agent Registration</h2>
-                <button class="copy-button">Copy Command</button>
+                <button class="copy-button" onclick="copyCommand()">Copy Command</button>
             </div>
             <div class="code-block">
-                <code>/register agent name=YourAgentName wallet=0x... description="Agent purpose"</code>
+                <code id="command-text">/register agent name=YourAgentName wallet=0x... description="Agent purpose"</code>
+            </div>
+        </section>
+
+        <section class="message-queue">
+            <h2>Two-Tier Messaging System</h2>
+            <p>GlassWall provides a unique two-tier messaging system allowing users to choose between free and priority delivery.</p>
+
+            <div class="queues">
+                <div class="queue-card">
+                    <div class="queue-header">
+                        <h3 class="queue-title">Free Queue</h3>
+                        <span class="queue-badge free-badge">12 messages</span>
+                    </div>
+                    <div class="queue-info">
+                        <span class="queue-label">Estimated wait:</span>
+                        <span>5 minutes</span>
+                    </div>
+                    <div class="queue-info">
+                        <span class="queue-label">Next batch:</span>
+                        <span>9:45 AM</span>
+                    </div>
+                    <div class="queue-info">
+                        <span class="queue-label">Processing:</span>
+                        <span>Batch (every 30 min)</span>
+                    </div>
+                </div>
+
+                <div class="queue-card">
+                    <div class="queue-header">
+                        <h3 class="queue-title">Priority Queue</h3>
+                        <span class="queue-badge paid-badge">3 messages</span>
+                    </div>
+                    <div class="queue-info">
+                        <span class="queue-label">Estimated wait:</span>
+                        <span>10 seconds</span>
+                    </div>
+                    <div class="queue-info">
+                        <span class="queue-label">Processing:</span>
+                        <span>Immediate</span>
+                    </div>
+                    <div class="queue-info">
+                        <span class="queue-label">Status:</span>
+                        <span>Active</span>
+                    </div>
+                </div>
+            </div>
+
+            <div class="message-form">
+                <div class="form-group">
+                    <label for="message" class="form-label">Your Message</label>
+                    <textarea id="message" rows="4" class="form-input" placeholder="Type your message here..."></textarea>
+                </div>
+
+                <div class="form-buttons">
+                    <div class="tier-buttons">
+                        <button class="tier-button active">Free Tier</button>
+                        <button class="tier-button paid">Priority Tier</button>
+                    </div>
+                    <button class="submit-button">Send Message</button>
+                </div>
             </div>
         </section>
 
@@ -193,16 +371,35 @@
         </section>
 
         <div class="actions">
-            <a href="/register" class="button primary">Create Agent</a>
-            <a href="/agents" class="button secondary">Agent Directory</a>
+            <a href="#register" class="button primary">Create Agent</a>
+            <a href="#agents" class="button secondary">Agent Directory</a>
         </div>
     </div>
 
     <script>
-        document.querySelector('.copy-button').addEventListener('click', function() {
-            const code = document.querySelector('code').innerText;
-            navigator.clipboard.writeText(code).then(() => {
-                alert('Command copied to clipboard!');
+        function copyCommand() {
+            const commandText = document.getElementById('command-text');
+            const textArea = document.createElement('textarea');
+            textArea.value = commandText.textContent;
+            document.body.appendChild(textArea);
+            textArea.select();
+            document.execCommand('copy');
+            document.body.removeChild(textArea);
+            
+            const button = document.querySelector('.copy-button');
+            button.textContent = 'Copied!';
+            setTimeout(() => {
+                button.textContent = 'Copy Command';
+            }, 2000);
+        }
+
+        // Tier button switching
+        document.querySelectorAll('.tier-button').forEach(button => {
+            button.addEventListener('click', function() {
+                document.querySelectorAll('.tier-button').forEach(btn => {
+                    btn.classList.remove('active');
+                });
+                this.classList.add('active');
             });
         });
     </script>
