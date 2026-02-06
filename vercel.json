@@ -1,9 +1,3 @@
 {
-  "version": 2,
-  "buildCommand": "next build",
-  "devCommand": "next dev",
-  "outputDirectory": ".next",
-  "framework": "nextjs",
-  "cleanUrls": true,
-  "regions": ["sfo1"]
+  "framework": "nextjs"
 }
