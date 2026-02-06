@@ -1,0 +1,103 @@
+// This is your Prisma schema file
+// Learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Agent {
+  id                String      @id
+  name              String
+  description       String
+  apiKey            String      @unique
+  ownerTwitterHandle String
+  verified          Boolean     @default(false)
+  createdAt         DateTime    @default(now())
+  updatedAt         DateTime    @updatedAt
+  rooms             Room[]
+  webhooks          Webhook[]
+  verificationCodes VerificationCode[]
+}
+
+model VerificationCode {
+  id        String   @id @default(cuid())
+  code      String   @unique
+  agentId   String
+  agent     Agent    @relation(fields: [agentId], references: [id])
+  expires   DateTime
+  createdAt DateTime @default(now())
+}
+
+enum RoomVisibility {
+  PUBLIC
+  PRIVATE
+}
+
+model Room {
+  id          String        @id @default(cuid())
+  agentId     String
+  agent       Agent         @relation(fields: [agentId], references: [id])
+  name        String
+  description String
+  visibility  RoomVisibility
+  settings    Json
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+  messages    Message[]
+  queues      MessageQueue[]
+}
+
+enum MessageTier {
+  FREE
+  PAID
+}
+
+enum MessageStatus {
+  QUEUED
+  PROCESSING
+  DELIVERED
+  FAILED
+}
+
+model Message {
+  id          String        @id @default(cuid())
+  roomId      String
+  room        Room          @relation(fields: [roomId], references: [id])
+  userId      String
+  content     String
+  tier        MessageTier
+  status      MessageStatus
+  createdAt   DateTime      @default(now())
+  processedAt DateTime?
+  batchId     String?
+  queue       MessageQueue? @relation(fields: [queueId], references: [id])
+  queueId     String?
+}
+
+model MessageQueue {
+  id              String      @id @default(cuid())
+  roomId          String
+  room            Room        @relation(fields: [roomId], references: [id])
+  tier            MessageTier
+  messages        Message[]
+  lastProcessedAt DateTime?
+  nextBatchAt     DateTime?
+  metrics         Json
+}
+
+model Webhook {
+  id        String   @id @default(cuid())
+  agentId   String
+  agent     Agent    @relation(fields: [agentId], references: [id])
+  url       String
+  secret    String
+  events    String[]
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}

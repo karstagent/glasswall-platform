@@ -1,6 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { agentService } from '@/lib/services/agentService';
-import { AgentRegistrationRequest } from '@/types';
+import { z } from 'zod';
+
+const registerSchema = z.object({
+  agentId: z.string().min(3).max(50).regex(/^[a-z0-9-]+$/),
+  name: z.string().min(2).max(100),
+  description: z.string().min(10).max(500),
+  ownerTwitterHandle: z.string().min(1).max(50)
+});
 
 /**
  * POST /api/auth/register - Register a new agent
@@ -9,30 +16,21 @@ export async function POST(request: NextRequest) {
   try {
     // Parse request body
     const body = await request.json();
-    const { agentId, name, description, ownerTwitterHandle } = body as AgentRegistrationRequest;
     
-    // Validate required fields
-    if (!agentId || !name || !description || !ownerTwitterHandle) {
+    // Validate the input
+    const validation = registerSchema.safeParse(body);
+    if (!validation.success) {
       return NextResponse.json(
         { 
           success: false, 
-          error: 'Missing required fields' 
+          error: 'Invalid input', 
+          details: validation.error.format()
         },
         { status: 400 }
       );
     }
     
-    // Validate agent ID format (lowercase alphanumeric with hyphens)
-    const agentIdRegex = /^[a-z0-9-]+$/;
-    if (!agentIdRegex.test(agentId)) {
-      return NextResponse.json(
-        { 
-          success: false, 
-          error: 'Agent ID must contain only lowercase letters, numbers, and hyphens' 
-        },
-        { status: 400 }
-      );
-    }
+    const { agentId, name, description, ownerTwitterHandle } = validation.data;
     
     // Register the agent
     const registrationResponse = await agentService.registerAgent({

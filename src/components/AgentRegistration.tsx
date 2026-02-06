@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import axios from 'axios';
 
 export default function AgentRegistration() {
   const [formData, setFormData] = useState({
@@ -30,23 +31,19 @@ export default function AgentRegistration() {
     setIsSubmitting(true);
     
     try {
-      const response = await fetch('/api/auth/register', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify(formData)
-      });
+      const response = await axios.post('/api/auth/register', formData);
       
-      const result = await response.json();
-      
-      if (result.success) {
-        setRegistrationResult(result.data);
+      if (response.data.success) {
+        setRegistrationResult(response.data.data);
       } else {
-        setRegistrationResult({ error: result.error });
+        setRegistrationResult({ error: response.data.error });
       }
     } catch (error) {
-      setRegistrationResult({ error: 'An error occurred during registration' });
+      if (axios.isAxiosError(error) && error.response) {
+        setRegistrationResult({ error: error.response.data.error || 'Registration failed' });
+      } else {
+        setRegistrationResult({ error: 'An unexpected error occurred' });
+      }
     } finally {
       setIsSubmitting(false);
     }
@@ -77,7 +74,11 @@ export default function AgentRegistration() {
                     </code>
                     <button 
                       className="px-3 py-1 bg-blue-600 text-white rounded hover:bg-blue-700 text-sm"
-                      onClick={() => navigator.clipboard.writeText(registrationResult.apiKey || '')}
+                      onClick={() => {
+                        if (registrationResult.apiKey) {
+                          navigator.clipboard.writeText(registrationResult.apiKey);
+                        }
+                      }}
                     >
                       Copy
                     </button>

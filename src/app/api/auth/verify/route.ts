@@ -1,5 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { agentService } from '@/lib/services/agentService';
+import { z } from 'zod';
+
+const verifySchema = z.object({
+  claimCode: z.string().min(1).max(20),
+  twitterHandle: z.string().min(1).max(50)
+});
 
 /**
  * POST /api/auth/verify - Verify an agent with claim code
@@ -8,18 +14,21 @@ export async function POST(request: NextRequest) {
   try {
     // Parse request body
     const body = await request.json();
-    const { claimCode, twitterHandle } = body;
     
-    // Validate required fields
-    if (!claimCode || !twitterHandle) {
+    // Validate the input
+    const validation = verifySchema.safeParse(body);
+    if (!validation.success) {
       return NextResponse.json(
         { 
           success: false, 
-          error: 'Missing required fields' 
+          error: 'Invalid input', 
+          details: validation.error.format()
         },
         { status: 400 }
       );
     }
+    
+    const { claimCode, twitterHandle } = validation.data;
     
     // Verify the agent
     const verified = await agentService.verifyAgent(claimCode, twitterHandle);
