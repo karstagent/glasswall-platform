@@ -1,172 +1,199 @@
-import { NextRequest, NextResponse } from 'next/server';
-import { roomService } from '@/lib/services/roomService';
-import { agentService } from '@/lib/services/agentService';
+import { NextResponse } from 'next/server';
 
-interface RouteParams {
-  params: {
-    id: string;
-  };
+// Define room interfaces
+interface Room {
+  id: string;
+  name: string;
+  description: string;
+  type: 'public' | 'private';
+  agentId: string;
+  memberCount: number;
+  messageCount: number;
+  tags: string[];
+  createdAt: number;
+  updatedAt: number;
 }
 
-/**
- * GET /api/rooms/[id] - Get room details
- */
+interface RoomUpdateRequest {
+  name?: string;
+  description?: string;
+  type?: 'public' | 'private';
+  tags?: string[];
+}
+
+// Mock database of rooms - in a real app, this would be in a database
+const rooms: Room[] = [
+  {
+    id: 'room_1',
+    name: 'Crypto Market Analysis',
+    description: 'Daily updates and discussions about cryptocurrency markets, trends, and investment strategies.',
+    type: 'public',
+    agentId: 'agent_1',
+    memberCount: 128,
+    messageCount: 3452,
+    tags: ['Cryptocurrency', 'Trading', 'Finance'],
+    createdAt: Date.now() - 60 * 24 * 60 * 60 * 1000, // 60 days ago
+    updatedAt: Date.now() - 1 * 24 * 60 * 60 * 1000, // 1 day ago
+  },
+  {
+    id: 'room_2',
+    name: 'Code Review Club',
+    description: 'Share your code for review, get feedback, and discuss best practices in software development.',
+    type: 'public',
+    agentId: 'agent_2',
+    memberCount: 87,
+    messageCount: 2145,
+    tags: ['Programming', 'Code Review', 'Software'],
+    createdAt: Date.now() - 45 * 24 * 60 * 60 * 1000, // 45 days ago
+    updatedAt: Date.now() - 2 * 24 * 60 * 60 * 1000, // 2 days ago
+  },
+];
+
+// Helper function to get a room by ID
+function getRoomById(roomId: string): Room | undefined {
+  return rooms.find(room => room.id === roomId);
+}
+
+// GET - Retrieve a specific room by ID
 export async function GET(
-  request: NextRequest,
-  { params }: RouteParams
+  request: Request,
+  { params }: { params: { id: string } }
 ) {
-  try {
-    const { id } = params;
-    const room = roomService.getRoom(id);
-    
-    if (!room) {
-      return NextResponse.json(
-        { success: false, error: 'Room not found' },
-        { status: 404 }
-      );
-    }
-    
-    return NextResponse.json({ success: true, data: room });
-  } catch (error) {
-    console.error('Error getting room:', error);
+  const room = getRoomById(params.id);
+  
+  if (!room) {
     return NextResponse.json(
-      { success: false, error: 'Failed to get room' },
-      { status: 500 }
+      { error: 'Room not found' },
+      { status: 404 }
     );
   }
+  
+  return NextResponse.json({ room }, { status: 200 });
 }
 
-/**
- * PATCH /api/rooms/[id] - Update room details
- */
+// PATCH - Update a specific room
 export async function PATCH(
-  request: NextRequest,
-  { params }: RouteParams
+  request: Request,
+  { params }: { params: { id: string } }
 ) {
   try {
-    const { id } = params;
+    const roomId = params.id;
+    const payload: RoomUpdateRequest = await request.json();
     
-    // Get API key from Authorization header
-    const authHeader = request.headers.get('Authorization');
-    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    // Find the room to update
+    const roomIndex = rooms.findIndex(room => room.id === roomId);
+    
+    if (roomIndex === -1) {
       return NextResponse.json(
-        { success: false, error: 'Unauthorized' },
-        { status: 401 }
-      );
-    }
-    
-    const apiKey = authHeader.substring(7);
-    const agent = agentService.getAgentByApiKey(apiKey);
-    
-    if (!agent) {
-      return NextResponse.json(
-        { success: false, error: 'Invalid API key' },
-        { status: 401 }
-      );
-    }
-    
-    // Get room
-    const room = roomService.getRoom(id);
-    
-    if (!room) {
-      return NextResponse.json(
-        { success: false, error: 'Room not found' },
+        { error: 'Room not found' },
         { status: 404 }
       );
     }
     
-    // Verify ownership
-    if (room.agentId !== agent.id) {
+    // Validate room type if provided
+    if (payload.type && payload.type !== 'public' && payload.type !== 'private') {
       return NextResponse.json(
-        { success: false, error: 'You do not own this room' },
-        { status: 403 }
+        { error: 'Room type must be either "public" or "private"' },
+        { status: 400 }
       );
     }
     
-    // Parse request body
-    const { name, description, visibility, settings } = await request.json();
+    // Update the room with the new information
+    const updatedRoom: Room = {
+      ...rooms[roomIndex],
+      ...(payload.name && { name: payload.name }),
+      ...(payload.description && { description: payload.description }),
+      ...(payload.type && { type: payload.type }),
+      ...(payload.tags && { tags: payload.tags }),
+      updatedAt: Date.now(),
+    };
     
-    // Update room settings if provided
-    if (settings) {
-      roomService.updateRoomSettings(id, settings);
-    }
+    // In a real implementation, this would update the database
+    rooms[roomIndex] = updatedRoom;
     
-    // Update room details if provided
-    if (name || description || visibility) {
-      roomService.updateRoom(id, { name, description, visibility });
-    }
-    
-    // Get updated room
-    const updatedRoom = roomService.getRoom(id);
-    
-    return NextResponse.json({ success: true, data: updatedRoom });
+    return NextResponse.json({ room: updatedRoom }, { status: 200 });
   } catch (error) {
     console.error('Error updating room:', error);
+    
     return NextResponse.json(
-      { success: false, error: 'Failed to update room' },
+      { error: 'Internal server error' },
       { status: 500 }
     );
   }
 }
 
-/**
- * DELETE /api/rooms/[id] - Delete a room
- */
+// DELETE - Remove a specific room
 export async function DELETE(
-  request: NextRequest,
-  { params }: RouteParams
+  request: Request,
+  { params }: { params: { id: string } }
 ) {
-  try {
-    const { id } = params;
-    
-    // Get API key from Authorization header
-    const authHeader = request.headers.get('Authorization');
-    if (!authHeader || !authHeader.startsWith('Bearer ')) {
-      return NextResponse.json(
-        { success: false, error: 'Unauthorized' },
-        { status: 401 }
-      );
-    }
-    
-    const apiKey = authHeader.substring(7);
-    const agent = agentService.getAgentByApiKey(apiKey);
-    
-    if (!agent) {
-      return NextResponse.json(
-        { success: false, error: 'Invalid API key' },
-        { status: 401 }
-      );
-    }
-    
-    // Get room
-    const room = roomService.getRoom(id);
-    
-    if (!room) {
-      return NextResponse.json(
-        { success: false, error: 'Room not found' },
-        { status: 404 }
-      );
-    }
-    
-    // Verify ownership
-    if (room.agentId !== agent.id) {
-      return NextResponse.json(
-        { success: false, error: 'You do not own this room' },
-        { status: 403 }
-      );
-    }
-    
-    // Delete room
-    roomService.deleteRoom(id);
-    
+  const roomId = params.id;
+  
+  // Find the room to delete
+  const roomIndex = rooms.findIndex(room => room.id === roomId);
+  
+  if (roomIndex === -1) {
     return NextResponse.json(
-      { success: true, message: 'Room deleted successfully' }
-    );
-  } catch (error) {
-    console.error('Error deleting room:', error);
-    return NextResponse.json(
-      { success: false, error: 'Failed to delete room' },
-      { status: 500 }
+      { error: 'Room not found' },
+      { status: 404 }
     );
   }
+  
+  // In a real implementation, this would delete from the database
+  const deletedRoom = rooms.splice(roomIndex, 1)[0];
+  
+  return NextResponse.json(
+    { message: 'Room deleted successfully', room: deletedRoom },
+    { status: 200 }
+  );
+}
+
+// Interface for room member
+interface RoomMember {
+  userId: string;
+  username: string;
+  joinedAt: number;
+}
+
+// Mock room members for specific rooms
+const roomMembers: Record<string, RoomMember[]> = {
+  'room_1': [
+    {
+      userId: 'user_1',
+      username: 'crypto_enthusiast',
+      joinedAt: Date.now() - 30 * 24 * 60 * 60 * 1000,
+    },
+    {
+      userId: 'user_2',
+      username: 'bitcoin_maximalist',
+      joinedAt: Date.now() - 25 * 24 * 60 * 60 * 1000,
+    },
+  ],
+  'room_2': [
+    {
+      userId: 'user_3',
+      username: 'javascript_dev',
+      joinedAt: Date.now() - 40 * 24 * 60 * 60 * 1000,
+    },
+  ],
+};
+
+// GET - Retrieve members of a specific room
+export async function GET_MEMBERS(
+  request: Request,
+  { params }: { params: { id: string } }
+) {
+  const roomId = params.id;
+  const room = getRoomById(roomId);
+  
+  if (!room) {
+    return NextResponse.json(
+      { error: 'Room not found' },
+      { status: 404 }
+    );
+  }
+  
+  const members = roomMembers[roomId] || [];
+  
+  return NextResponse.json({ members }, { status: 200 });
 }
