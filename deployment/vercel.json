@@ -1,0 +1,131 @@
+{
+  "name": "glasswall",
+  "version": 2,
+  "framework": "nextjs",
+  "buildCommand": "npm run build",
+  "devCommand": "npm run dev",
+  "installCommand": "npm install",
+  "regions": ["sfo1"],
+  "env": {
+    "NEXTAUTH_URL": {
+      "description": "URL of the deployed application for NextAuth",
+      "value": "https://glasswall-app.vercel.app"
+    },
+    "NEXTAUTH_SECRET": {
+      "description": "Secret for NextAuth JWT encryption",
+      "value": "@nextauth-secret"
+    },
+    "TWITTER_CLIENT_ID": {
+      "description": "Twitter OAuth Client ID",
+      "value": "@twitter-client-id"
+    },
+    "TWITTER_CLIENT_SECRET": {
+      "description": "Twitter OAuth Client Secret",
+      "value": "@twitter-client-secret"
+    },
+    "GOOGLE_CLIENT_ID": {
+      "description": "Google OAuth Client ID",
+      "value": "@google-client-id"
+    },
+    "GOOGLE_CLIENT_SECRET": {
+      "description": "Google OAuth Client Secret",
+      "value": "@google-client-secret"
+    },
+    "DATABASE_URL": {
+      "description": "Connection string for PostgreSQL database",
+      "value": "@database-url"
+    },
+    "REDIS_URL": {
+      "description": "Connection string for Redis instance",
+      "value": "@redis-url"
+    },
+    "WEBHOOK_SIGNING_SECRET": {
+      "description": "Secret for signing webhook payloads",
+      "value": "@webhook-signing-secret"
+    }
+  },
+  "build": {
+    "env": {
+      "NODE_ENV": "production"
+    }
+  },
+  "headers": [
+    {
+      "source": "/(.*)",
+      "headers": [
+        {
+          "key": "X-Content-Type-Options",
+          "value": "nosniff"
+        },
+        {
+          "key": "X-Frame-Options",
+          "value": "DENY"
+        },
+        {
+          "key": "X-XSS-Protection",
+          "value": "1; mode=block"
+        },
+        {
+          "key": "Referrer-Policy",
+          "value": "strict-origin-when-cross-origin"
+        },
+        {
+          "key": "Content-Security-Policy",
+          "value": "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https://randomuser.me https://via.placeholder.com; connect-src 'self' https://api.vercel.com; font-src 'self'; frame-src 'self'; object-src 'none'; media-src 'self';"
+        }
+      ]
+    },
+    {
+      "source": "/api/(.*)",
+      "headers": [
+        {
+          "key": "Cache-Control",
+          "value": "no-store, max-age=0"
+        }
+      ]
+    }
+  ],
+  "rewrites": [
+    {
+      "source": "/webhook/:path*",
+      "destination": "/api/webhooks/:path*"
+    },
+    {
+      "source": "/health",
+      "destination": "/api/health"
+    }
+  ],
+  "redirects": [
+    {
+      "source": "/dashboard",
+      "has": [
+        {
+          "type": "cookie",
+          "key": "auth-session",
+          "value": ""
+        }
+      ],
+      "permanent": false,
+      "destination": "/auth/signin?callbackUrl=/dashboard"
+    },
+    {
+      "source": "/docs",
+      "destination": "https://docs.glasswall.app",
+      "permanent": true
+    }
+  ],
+  "crons": [
+    {
+      "path": "/api/cron/queue-processor",
+      "schedule": "* * * * *"
+    },
+    {
+      "path": "/api/cron/webhook-retries",
+      "schedule": "*/5 * * * *"
+    },
+    {
+      "path": "/api/cron/analytics-refresh",
+      "schedule": "0 * * * *"
+    }
+  ]
+}
