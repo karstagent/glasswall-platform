@@ -1,0 +1,161 @@
+name: GlassWall Scheduled Tasks
+
+on:
+  schedule:
+    # Run security scan every Monday at 1:00 AM UTC
+    - cron: '0 1 * * 1'
+    # Run database backup every day at 3:00 AM UTC
+    - cron: '0 3 * * *'
+    # Run stale PR cleanup every Wednesday at 2:00 AM UTC
+    - cron: '0 2 * * 3'
+  workflow_dispatch:
+
+jobs:
+  security-scan:
+    name: Security Scan
+    runs-on: ubuntu-latest
+    
+    steps:
+      - uses: actions/checkout@v3
+      
+      - name: Setup Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: '18'
+          cache: 'npm'
+          
+      - name: Install dependencies
+        run: npm ci
+        
+      - name: Run npm audit
+        run: npm audit
+        
+      - name: Run Snyk vulnerability scan
+        uses: snyk/actions/node@master
+        env:
+          SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
+        with:
+          args: --severity-threshold=high
+          
+      - name: Run CodeQL Analysis
+        uses: github/codeql-action/analyze@v2
+        with:
+          languages: javascript, typescript
+          
+      - name: Send Security Report
+        if: always()
+        uses: actions/github-script@v6
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const result = `
+            # Security Scan Report
+            
+            Date: ${new Date().toISOString()}
+            
+            ## Results
+            - npm audit: ${{ job.status == 'success' ? '✅ Pass' : '❌ Fail' }}
+            - Snyk scan: ${{ job.status == 'success' ? '✅ Pass' : '❌ Fail' }}
+            - CodeQL: ${{ job.status == 'success' ? '✅ Pass' : '❌ Fail' }}
+            
+            ## Action Required
+            ${{ job.status == 'success' ? 'No action required.' : 'Please review and address the security issues found in the scan.' }}
+            `;
+            
+            github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: `Security Scan Report - ${new Date().toISOString().split('T')[0]}`,
+              body: result,
+              labels: ['security', 'automated']
+            });
+
+  database-backup:
+    name: Database Backup
+    runs-on: ubuntu-latest
+    
+    steps:
+      - uses: actions/checkout@v3
+      
+      - name: Set up PostgreSQL client
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y postgresql-client
+          
+      - name: Create backup directory
+        run: mkdir -p backups
+        
+      - name: Backup database
+        run: |
+          export PGPASSWORD=${{ secrets.DB_PASSWORD }}
+          pg_dump -h ${{ secrets.DB_HOST }} -U ${{ secrets.DB_USER }} -d ${{ secrets.DB_NAME }} -F c -f backups/glasswall-$(date +%Y-%m-%d).dump
+        
+      - name: Compress backup
+        run: gzip backups/glasswall-$(date +%Y-%m-%d).dump
+        
+      - name: Upload backup to S3
+        uses: aws-actions/configure-aws-credentials@v1
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: us-west-2
+          
+      - name: Copy backup to S3
+        run: |
+          aws s3 cp backups/glasswall-$(date +%Y-%m-%d).dump.gz s3://${{ secrets.BACKUP_BUCKET }}/daily/
+          
+      - name: Create monthly backup (1st of month)
+        if: endsWith(github.event.schedule, '0 3 1 * *') || github.event_name == 'workflow_dispatch'
+        run: |
+          aws s3 cp backups/glasswall-$(date +%Y-%m-%d).dump.gz s3://${{ secrets.BACKUP_BUCKET }}/monthly/glasswall-$(date +%Y-%m).dump.gz
+          
+      - name: Cleanup old backups
+        run: |
+          # Keep only last 30 daily backups
+          aws s3 ls s3://${{ secrets.BACKUP_BUCKET }}/daily/ | sort | head -n -30 | awk '{print $4}' | xargs -I {} aws s3 rm s3://${{ secrets.BACKUP_BUCKET }}/daily/{}
+          
+          # Keep only last 12 monthly backups
+          aws s3 ls s3://${{ secrets.BACKUP_BUCKET }}/monthly/ | sort | head -n -12 | awk '{print $4}' | xargs -I {} aws s3 rm s3://${{ secrets.BACKUP_BUCKET }}/monthly/{}
+
+  stale-pr-cleanup:
+    name: Stale PR Cleanup
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Close stale PRs
+        uses: actions/stale@v6
+        with:
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+          stale-pr-message: 'This PR is stale because it has been open for 30 days with no activity. It will be closed in 5 days if no further activity occurs.'
+          close-pr-message: 'This PR was closed because it has been inactive for 35 days.'
+          days-before-pr-stale: 30
+          days-before-pr-close: 5
+          stale-pr-label: 'stale'
+          exempt-pr-labels: 'no-stale,security,dependencies'
+          
+  metrics-collection:
+    name: Metrics Collection
+    runs-on: ubuntu-latest
+    
+    steps:
+      - uses: actions/checkout@v3
+      
+      - name: Setup Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: '18'
+          cache: 'npm'
+          
+      - name: Install dependencies
+        run: npm ci
+        
+      - name: Run metrics collection script
+        run: node scripts/collect-metrics.js
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          
+      - name: Upload metrics to dashboard
+        run: node scripts/upload-metrics.js
+        env:
+          METRICS_API_KEY: ${{ secrets.METRICS_API_KEY }}
+          METRICS_ENDPOINT: ${{ secrets.METRICS_ENDPOINT }}
