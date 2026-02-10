@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 60" width="200" height="60">
+  <defs>
+    <linearGradient id="logoGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#3498db" stop-opacity="0.8"/>
+      <stop offset="100%" stop-color="#2980b9" stop-opacity="0.9"/>
+    </linearGradient>
+  </defs>
+  <rect x="5" y="10" width="40" height="40" rx="8" ry="8" fill="url(#logoGradient)" stroke="#1f618d" stroke-width="1.5" />
+  <path d="M13 22 L37 22 L37 38 L13 38 Z" fill="none" stroke="white" stroke-width="2" opacity="0.7" />
+  <path d="M18 18 L42 18 L42 34 L18 34 Z" fill="none" stroke="white" stroke-width="2" opacity="0.5" />
+  <path d="M8 26 L32 26 L32 42 L8 42 Z" fill="none" stroke="white" stroke-width="2" opacity="0.5" />
+  
+  <!-- Text -->
+  <text x="55" y="37" font-family="Arial, sans-serif" font-size="20" font-weight="bold" fill="#2c3e50">GlassWall</text>
+</svg>
