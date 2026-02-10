@@ -1,44 +1,12 @@
 {
   "version": 2,
-  "builds": [
-    {
-      "src": "package.json",
-      "use": "@vercel/next"
-    }
-  ],
-  "routes": [
-    { 
-      "src": "/static/(.*)",
-      "dest": "/static/$1"
-    },
-    { 
-      "src": "/assets/(.*)",
-      "dest": "/assets/$1"
-    },
-    { 
-      "src": "/(.*\\.js)",
-      "dest": "/$1"
-    },
-    { 
-      "src": "/(.*\\.css)",
-      "dest": "/$1"
-    },
-    { 
-      "src": "/(.*\\.ico)",
-      "dest": "/$1"
-    },
-    { 
-      "src": "/(.*\\.png)",
-      "dest": "/$1"
-    },
-    {
-      "src": "/(.*)",
-      "dest": "/index.html"
-    }
-  ],
+  "framework": "nextjs",
   "env": {
     "NEXT_PUBLIC_API_URL": "https://glasswall-app.vercel.app/api"
   },
+  "rewrites": [
+    { "source": "/(.*)", "destination": "/" }
+  ],
   "headers": [
     {
       "source": "/(.*)",
