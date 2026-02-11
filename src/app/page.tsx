@@ -1,7 +1,8 @@
 'use client';
 
 import React, { useEffect, useState } from 'react';
-import Image from 'next/image';
+import InteractiveDemo from './components/InteractiveDemo';
+import ThemeToggle from './components/ThemeToggle';
 
 const GlassParticle = ({ id }: { id: number }) => {
   // Generate random size, position and animation delay
@@ -43,13 +44,16 @@ export default function Home() {
   
   return (
     <main className="flex min-h-screen flex-col items-center justify-center p-6 md:p-24 relative overflow-hidden">
+      {/* Theme toggle */}
+      <ThemeToggle />
+      
       {/* Floating glass particles */}
       {particles.map(id => <GlassParticle key={id} id={id} />)}
       
       {/* Hero section with logo */}
       <div className="flex flex-col items-center mb-16 relative z-10">
         <div className="relative w-32 h-32 md:w-40 md:h-40 mb-8 animate-pulse">
-          {/* Placeholder for logo - you can replace this with your actual logo */}
+          {/* Logo */}
           <div className="absolute inset-0 rounded-full bg-gradient-to-tr from-blue-500 to-purple-600 opacity-70 blur-md"></div>
           <div className="absolute inset-2 rounded-full bg-gradient-to-tr from-blue-400 to-purple-500 flex items-center justify-center">
             <span className="text-3xl md:text-5xl font-bold text-white">GW</span>
@@ -120,6 +124,9 @@ export default function Home() {
           </ul>
         </div>
       </div>
+      
+      {/* Interactive Demo Section */}
+      <InteractiveDemo />
       
       {/* Feature highlights */}
       <div className="glass w-full max-w-5xl p-8 mb-16">
