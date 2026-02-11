@@ -2,11 +2,8 @@
   "version": 2,
   "framework": "nextjs",
   "env": {
-    "NEXT_PUBLIC_API_URL": "https://glasswall-app.vercel.app/api"
+    "NEXT_PUBLIC_API_URL": "https://glasswall-platform.vercel.app/api"
   },
-  "rewrites": [
-    { "source": "/(.*)", "destination": "/" }
-  ],
   "headers": [
     {
       "source": "/(.*)",

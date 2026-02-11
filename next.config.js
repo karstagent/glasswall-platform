@@ -13,6 +13,15 @@ const nextConfig = {
   },
   // Enable output tracing for better Vercel deployments
   output: 'standalone',
+  // Ensure CSS processing
+  webpack: (config) => {
+    // Add CSS processing for both dev and prod
+    config.module.rules.push({
+      test: /\.css$/,
+      use: ['style-loader', 'css-loader', 'postcss-loader'],
+    });
+    return config;
+  },
   // Add trailing slash for more consistent routing
   trailingSlash: false,
   // Improved error handling
