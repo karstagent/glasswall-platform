@@ -4,6 +4,9 @@ module.exports = {
     './src/pages/**/*.{js,ts,jsx,tsx,mdx}',
     './src/components/**/*.{js,ts,jsx,tsx,mdx}',
     './src/app/**/*.{js,ts,jsx,tsx,mdx}',
+    './app/**/*.{js,ts,jsx,tsx,mdx}',
+    './components/**/*.{js,ts,jsx,tsx,mdx}',
+    './pages/**/*.{js,ts,jsx,tsx,mdx}',
   ],
   theme: {
     extend: {
@@ -27,15 +30,19 @@ module.exports = {
       const newUtilities = {
         '.backdrop-blur': {
           'backdrop-filter': 'blur(10px)',
+          '-webkit-backdrop-filter': 'blur(10px)',
         },
         '.backdrop-blur-md': {
           'backdrop-filter': 'blur(16px)',
+          '-webkit-backdrop-filter': 'blur(16px)',
         },
         '.backdrop-blur-lg': {
           'backdrop-filter': 'blur(20px)',
+          '-webkit-backdrop-filter': 'blur(20px)',
         },
         '.backdrop-blur-xl': {
           'backdrop-filter': 'blur(24px)',
+          '-webkit-backdrop-filter': 'blur(24px)',
         },
       }
       addUtilities(newUtilities)
